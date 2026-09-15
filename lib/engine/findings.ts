@@ -2,6 +2,7 @@ import { q, tx } from "@/lib/db";
 import { clientWithProperties, type ClientWithProps } from "@/lib/binding";
 import { campaignPerformance, periodTotals, pacing, fromMicros } from "./metrics";
 import { segmentFindings } from "./segments";
+import { forensicFindings } from "./forensics";
 
 export type Finding = {
   kind: string;
@@ -40,6 +41,9 @@ export async function computeFindings(clientId: number): Promise<Finding[]> {
   // Everything above works from campaign totals. These work from the
   // segmentation, and are where the actionable detail lives.
   out.push(...(await segmentFindings(clientId)));
+  // Causes rather than symptoms: where traffic physically went, when the
+  // account changed, and what it is actually optimising toward.
+  out.push(...(await forensicFindings(clientId)));
 
   return out.sort((a, b) => {
     const rank = { critical: 0, warning: 1, info: 2 };

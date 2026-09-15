@@ -287,3 +287,191 @@ export async function syncGtm(
 
   return tags.length;
 }
+
+// ---------------------------------------------------------- placements -----
+
+/**
+ * Where display and Performance Max impressions actually landed.
+ *
+ * This is the difference between "display underperformed" and "39,370 of your
+ * clicks came from three chat apps and converted nothing". Without it there is
+ * no root cause available, only a verdict on a channel.
+ */
+export async function syncPlacements(
+  auth: OAuth2Client,
+  client: ClientWithProps
+): Promise<number> {
+  const cid = digits(client.ads_customer_id!);
+  let total = 0;
+
+  // detail_placement_view carries app and URL level detail; group_placement_view
+  // is the coarser domain/app grouping. Both are one operation.
+  const sources: [string, string][] = [
+    ["detail", `
+      SELECT campaign.id,
+             detail_placement_view.placement,
+             detail_placement_view.display_name,
+             detail_placement_view.placement_type,
+             detail_placement_view.target_url,
+             ${METRICS}
+        FROM detail_placement_view
+       WHERE ${range()}`],
+    ["group", `
+      SELECT campaign.id,
+             group_placement_view.placement,
+             group_placement_view.display_name,
+             group_placement_view.placement_type,
+             group_placement_view.target_url,
+             ${METRICS}
+        FROM group_placement_view
+       WHERE ${range()}`],
+  ];
+
+  for (const [kind, gaql] of sources) {
+    let rows: any[];
+    try {
+      rows = await searchStream(auth, cid, gaql);
+    } catch {
+      continue;   // an account with no display inventory simply has no view
+    }
+
+    const acc = new Map<string, any>();
+    for (const r of rows) {
+      const v = r.detailPlacementView ?? r.groupPlacementView ?? {};
+      const placement = v.placement ?? "";
+      if (!placement) continue;
+      const campaignId = String(r.campaign?.id ?? "");
+      const key = `${campaignId}|${placement}`;
+      const m = r.metrics ?? {};
+      const cur = acc.get(key) ?? {
+        campaignId, placement,
+        displayName: v.displayName ?? null,
+        type: v.placementType ?? null,
+        targetUrl: v.targetUrl ?? null,
+        impressions: 0n, clicks: 0n, cost: 0n, conv: 0,
+      };
+      cur.impressions += BigInt(String(m.impressions ?? 0));
+      cur.clicks += BigInt(String(m.clicks ?? 0));
+      cur.cost += BigInt(String(m.costMicros ?? 0));
+      cur.conv += num(m.conversions);
+      acc.set(key, cur);
+    }
+
+    if (!acc.size) continue;
+
+    await tx(async (run) => {
+      for (const p of acc.values()) {
+        await run(
+          `INSERT INTO placements (client_id, ads_customer_id, campaign_id, placement,
+              display_name, placement_type, target_url,
+              impressions, clicks, cost_micros, conversions, window_days, synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())
+           ON CONFLICT (ads_customer_id, campaign_id, placement) DO UPDATE SET
+             client_id = EXCLUDED.client_id,
+             display_name = COALESCE(EXCLUDED.display_name, placements.display_name),
+             placement_type = COALESCE(EXCLUDED.placement_type, placements.placement_type),
+             target_url = COALESCE(EXCLUDED.target_url, placements.target_url),
+             impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks,
+             cost_micros = EXCLUDED.cost_micros, conversions = EXCLUDED.conversions,
+             window_days = EXCLUDED.window_days, synced_at = now()`,
+          [client.id, cid, p.campaignId, p.placement, p.displayName, p.type, p.targetUrl,
+           String(p.impressions), String(p.clicks), String(p.cost), p.conv, WINDOW]
+        );
+      }
+    });
+    total += acc.size;
+    if (kind === "detail" && total > 0) break;   // detail supersedes group
+  }
+
+  return total;
+}
+
+// ------------------------------------------------------------- monthly -----
+
+/**
+ * Per-campaign monthly totals, derived from what is already stored.
+ *
+ * "Something changed" is not a finding. "It changed in July, and here is the
+ * campaign that changed" is. That needs a month-by-month shape, and a year of
+ * daily metrics is already in the database.
+ */
+export async function buildMonthly(clientId: number): Promise<number> {
+  const rows = await q<{ n: string }>(`
+    INSERT INTO monthly_metrics (client_id, campaign_id, month, impressions,
+        clicks, cost_micros, conversions, conversion_value_micros)
+    SELECT client_id, entity_id, date_trunc('month', date)::date,
+           SUM(impressions), SUM(clicks), SUM(cost_micros),
+           SUM(conversions), SUM(conversion_value_micros)
+      FROM metrics_daily
+     WHERE client_id = $1 AND entity_type = 'campaign'
+     GROUP BY client_id, entity_id, date_trunc('month', date)
+    ON CONFLICT (client_id, campaign_id, month) DO UPDATE SET
+      impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks,
+      cost_micros = EXCLUDED.cost_micros, conversions = EXCLUDED.conversions,
+      conversion_value_micros = EXCLUDED.conversion_value_micros
+    RETURNING 1 AS n
+  `, [clientId]);
+  return rows.length;
+}
+
+// ------------------------------------------- conversion composition --------
+
+/**
+ * Conversions split by action, by month.
+ *
+ * A total of 5,954 conversions looks healthy. Learning that 99% of them are one
+ * free-registration action changes the entire reading of the account, because
+ * that is what Smart Bidding has been buying.
+ */
+export async function syncConversionBreakdown(
+  auth: OAuth2Client,
+  client: ClientWithProps
+): Promise<number> {
+  const cid = digits(client.ads_customer_id!);
+  const rows = await searchStream(auth, cid, `
+    SELECT segments.conversion_action,
+           segments.conversion_action_name,
+           segments.month,
+           metrics.all_conversions,
+           metrics.all_conversions_value
+      FROM customer
+     WHERE segments.date BETWEEN '${isoDaysAgo(365)}' AND '${isoDaysAgo(1)}'
+  `);
+
+  const acc = new Map<string, any>();
+  for (const r of rows) {
+    const rn = String(r.segments?.conversionAction ?? "");
+    const actionId = rn.split("/").pop() ?? "";
+    if (!actionId) continue;
+    const month = r.segments?.month;
+    if (!month) continue;
+    const key = `${actionId}|${month}`;
+    const m = r.metrics ?? {};
+    const cur = acc.get(key) ?? {
+      actionId, month,
+      name: r.segments?.conversionActionName ?? "",
+      conv: 0, value: 0,
+    };
+    cur.conv += num(m.allConversions);
+    cur.value += num(m.allConversionsValue);
+    acc.set(key, cur);
+  }
+
+  await tx(async (run) => {
+    for (const a of acc.values()) {
+      await run(
+        `INSERT INTO conversion_breakdown (client_id, ads_customer_id, action_id,
+            action_name, month, conversions, conversion_value_micros)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (ads_customer_id, action_id, month) DO UPDATE SET
+           client_id = EXCLUDED.client_id, action_name = EXCLUDED.action_name,
+           conversions = EXCLUDED.conversions,
+           conversion_value_micros = EXCLUDED.conversion_value_micros`,
+        [client.id, cid, a.actionId, a.name, a.month,
+         a.conv, String(Math.round(a.value * 1e6))]
+      );
+    }
+  });
+
+  return acc.size;
+}
