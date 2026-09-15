@@ -1,0 +1,60 @@
+# fortress-hq-site
+
+Two static pages for `fortress-hq.com`. Their only job right now is to satisfy
+Google's brand verification, which requires a reachable application home page
+and a privacy policy hosted on the domain you verify.
+
+```
+index.html     holding page
+privacy.html   the privacy policy — this is the one Google's reviewer reads
+styles.css     Glass system: grey scene, teal-green sheet, one highlighter
+```
+
+No build step, no dependencies.
+
+## Before you deploy — two things to fix
+
+1. **`privacy@fortress-hq.com` must actually receive mail.** It appears three
+   times in `privacy.html`. A privacy policy with a dead contact address is a
+   common verification rejection. Either set up forwarding at your registrar or
+   swap it for an address that already works.
+2. **Check the facts.** The policy states Digitl is the operator, based in Niš,
+   and describes retention as "engagement plus twelve months". Correct anything
+   that is not true of how you actually intend to run it. It has to match
+   reality, not aspiration.
+
+## Deploy
+
+Any static host works. Vercel, since the rest of your stack is there:
+
+```bash
+npx vercel --prod
+```
+
+Then point `fortress-hq.com` at it. The domain currently resolves to a parking
+IP and serves nothing over HTTPS, so DNS needs changing and the certificate
+needs to issue before verification will pass.
+
+Confirm both pages are live over HTTPS before submitting:
+
+```bash
+curl -sI https://fortress-hq.com/ | head -1
+curl -sI https://fortress-hq.com/privacy.html | head -1
+```
+
+## Then, in Google Auth Platform
+
+- **Branding** — app name, support email, the home page `https://fortress-hq.com`,
+  and the privacy policy `https://fortress-hq.com/privacy.html`.
+- **Audience** — External, then publish to production. Leaving it in Testing
+  expires every refresh token after seven days.
+- **Verification Center** — submit brand verification.
+- Verify `fortress-hq.com` in Search Console first, or the domain check fails.
+
+## Note on this domain's future
+
+If `fortress-hq.com` later becomes the Fortress HQ product marketing site, this
+holding page gets replaced. Keep `/privacy.html` at the same URL when that
+happens, or re-point the Google Auth Platform branding at wherever it moves.
+The page carries `noindex` so it will not compete with a future product site in
+search results.
