@@ -66,7 +66,7 @@ export default async function Home() {
       <div className="tiles">
         <Tile label="Accounts selected" value={selected} href="/connect" />
         <Tile label="Available to import" value={available} href="/connect" />
-        <Tile label="Clients configured" value={clients} />
+        <Tile label="Clients configured" value={clients} href="/clients" />
       </div>
 
       <div className="sheet sheet-pad">
@@ -92,10 +92,16 @@ export default async function Home() {
               {available > selected
                 ? `${available - selected} more are available if you want them. `
                 : ""}
-              Check on the Connect page which Google products you granted access
-              to — anything ungranted quietly limits what can be measured.
+              {clients > 0
+                ? "Open a client to see spend, pacing, what needs attention, and the analysis."
+                : "Turn a selected account into a client to get a dashboard for it — that is where the numbers, the findings and the recommendations live."}
             </p>
-            <Link href="/connect" className="btn btn-ghost">Manage what is imported</Link>
+            <div className="row" style={{ gap: 10 }}>
+              <Link href="/clients" className="btn btn-accent">
+                {clients > 0 ? "Open the dashboards" : "Set up a client"}
+              </Link>
+              <Link href="/connect" className="btn btn-ghost">Manage what is imported</Link>
+            </div>
           </>
         )}
       </div>
@@ -110,7 +116,7 @@ function Tile({
 }: {
   label: string;
   value: number;
-  href?: "/connect";
+  href?: "/connect" | "/clients";
 }) {
   const inner = (
     <>
