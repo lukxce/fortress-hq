@@ -7,6 +7,40 @@ import { countOps, gtmPace } from "./quota";
 
 export type Provider = "ads" | "ga4" | "gsc" | "gtm";
 
+/**
+ * Run an async map with a concurrency cap.
+ *
+ * Discovery is dominated by round trips to Google, not by work. Doing them one
+ * at a time meant eight accounts cost eight sequential waits, which is what
+ * pushed a run past the serverless timeout.
+ */
+async function pMap<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+/** Wall-clock budget for one discovery run, kept under the platform timeout. */
+const BUDGET_MS = 45_000;
+
+class Deadline {
+  private readonly end = Date.now() + BUDGET_MS;
+  get expired() { return Date.now() > this.end; }
+  get remaining() { return Math.max(0, this.end - Date.now()); }
+}
+
 export type Discovered = {
   provider: Provider;
   providerId: string;
@@ -27,7 +61,11 @@ export type DiscoveryReport = {
 
 // --- Google Ads -------------------------------------------------------------
 
-async function discoverAds(client: OAuth2Client, deriveDomains: boolean): Promise<Discovered[]> {
+async function discoverAds(
+  client: OAuth2Client,
+  deriveDomains: boolean,
+  deadline: Deadline
+): Promise<Discovered[]> {
   const roots = await listAccessibleCustomers(client);
   const seen = new Map<string, Discovered>();
 
@@ -53,22 +91,26 @@ async function discoverAds(client: OAuth2Client, deriveDomains: boolean): Promis
     }
   }
 
-  // Domain derivation costs one operation per spendable account. Worth it:
-  // it is the only way to auto-bind an Ads account to a GA4 property or a
-  // Search Console site, since Ads exposes no domain field.
-  if (deriveDomains) {
-    for (const item of seen.values()) {
-      if (item.isManager) continue;
+  // Domain derivation costs one round trip per spendable account. It is the
+  // only way to auto-bind an Ads account to a GA4 property or Search Console
+  // site, since Ads exposes no domain field — but it is enrichment, not the
+  // point, so it runs concurrently and is abandoned if time runs short. A run
+  // that returns accounts without domains beats one that times out.
+  const items = [...seen.values()];
+  if (deriveDomains && !deadline.expired) {
+    const spendable = items.filter((i) => !i.isManager);
+    await pMap(spendable, 6, async (item) => {
+      if (deadline.expired) return;
       item.domain = await guessDomain(client, item.providerId, item.parentId ?? undefined);
-    }
+    });
   }
 
-  return [...seen.values()];
+  return items;
 }
 
 // --- GA4 --------------------------------------------------------------------
 
-async function discoverGa4(auth: OAuth2Client): Promise<Discovered[]> {
+async function discoverGa4(auth: OAuth2Client, deadline: Deadline): Promise<Discovered[]> {
   const admin = google.analyticsadmin({ version: "v1beta", auth });
   const res = await admin.accountSummaries.list({ pageSize: 200 });
   await countOps("ga4", 1);
@@ -87,19 +129,22 @@ async function discoverGa4(auth: OAuth2Client): Promise<Discovered[]> {
     }
   }
 
-  // The web data stream carries the site URL, which is how a GA4 property
-  // gets a domain to match on.
-  for (const item of out) {
-    try {
-      const streams = await admin.properties.dataStreams.list({
-        parent: `properties/${item.providerId}`,
-        pageSize: 20,
-      });
-      await countOps("ga4", 1);
-      const web = (streams.data.dataStreams ?? []).find((s) => s.webStreamData?.defaultUri);
-      const uri = web?.webStreamData?.defaultUri;
-      if (uri) item.domain = new URL(uri).hostname.replace(/^www\./, "");
-    } catch { /* a property without a readable stream still belongs in the list */ }
+  // The web data stream carries the site URL, which is how a GA4 property gets
+  // a domain to match on. One round trip per property, so run them together.
+  if (!deadline.expired) {
+    await pMap(out, 6, async (item) => {
+      if (deadline.expired) return;
+      try {
+        const streams = await admin.properties.dataStreams.list({
+          parent: `properties/${item.providerId}`,
+          pageSize: 20,
+        });
+        await countOps("ga4", 1);
+        const web = (streams.data.dataStreams ?? []).find((s) => s.webStreamData?.defaultUri);
+        const uri = web?.webStreamData?.defaultUri;
+        if (uri) item.domain = new URL(uri).hostname.replace(/^www\./, "");
+      } catch { /* a property without a readable stream still belongs in the list */ }
+    });
   }
 
   return out;
@@ -130,13 +175,17 @@ async function discoverGsc(auth: OAuth2Client): Promise<Discovered[]> {
 
 // --- Tag Manager ------------------------------------------------------------
 
-async function discoverGtm(auth: OAuth2Client): Promise<Discovered[]> {
+async function discoverGtm(auth: OAuth2Client, deadline: Deadline): Promise<Discovered[]> {
   const gtm = google.tagmanager({ version: "v2", auth });
   const accounts = await gtm.accounts.list({});
   await countOps("gtm", 1);
 
   const out: Discovered[] = [];
   for (const a of accounts.data.account ?? []) {
+    // Tag Manager cannot be parallelised: 25 requests per 100 seconds per
+    // project is a hard ceiling, so this one stays paced and simply stops when
+    // the budget runs out. Re-running discovery picks up where it left off.
+    if (deadline.expired) break;
     try {
       const cl = await gtm.accounts.containers.list({ parent: `accounts/${a.accountId}` });
       await countOps("gtm", 1);
@@ -168,26 +217,34 @@ export async function runDiscovery(
   opts: { deriveDomains?: boolean } = {}
 ): Promise<DiscoveryReport> {
   const client = await clientFor(connectionId);
+  const deadline = new Deadline();
   const found: Record<Provider, number> = { ads: 0, ga4: 0, gsc: 0, gtm: 0 };
   const errors: DiscoveryReport["errors"] = [];
   const all: Discovered[] = [];
 
   const jobs: [Provider, () => Promise<Discovered[]>][] = [
-    ["ads", () => discoverAds(client, opts.deriveDomains ?? true)],
-    ["ga4", () => discoverGa4(client)],
+    ["ads", () => discoverAds(client, opts.deriveDomains ?? true, deadline)],
+    ["ga4", () => discoverGa4(client, deadline)],
     ["gsc", () => discoverGsc(client)],
-    ["gtm", () => discoverGtm(client)],
+    ["gtm", () => discoverGtm(client, deadline)],
   ];
 
-  for (const [provider, fn] of jobs) {
-    try {
-      const items = await fn();
-      found[provider] = items.length;
-      all.push(...items);
-    } catch (err) {
-      errors.push({ provider, message: (err as Error).message ?? String(err) });
+  // The four products are independent, so waiting for each in turn wasted the
+  // whole budget on whichever was slowest. One failing provider must not take
+  // the others down, hence allSettled.
+  const settled = await Promise.allSettled(jobs.map(([, fn]) => fn()));
+  settled.forEach((res, i) => {
+    const provider = jobs[i][0];
+    if (res.status === "fulfilled") {
+      found[provider] = res.value.length;
+      all.push(...res.value);
+    } else {
+      errors.push({
+        provider,
+        message: (res.reason as Error)?.message ?? String(res.reason),
+      });
     }
-  }
+  });
 
   await persist(connectionId, all, Object.keys(found).filter(
     (p) => !errors.some((e) => e.provider === p)
