@@ -1,2 +1,11 @@
-.DS_Store
 node_modules/
+.next/
+out/
+.env
+.env.local
+*.tsbuildinfo
+next-env.d.ts
+preflight/node_modules/
+preflight/token.json
+preflight/clients.json
+preflight/inventory.json

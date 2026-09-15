@@ -1,0 +1,6 @@
+node_modules/
+service-account.json
+clients.json
+*.key.json
+token.json
+inventory.json

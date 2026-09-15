@@ -1,0 +1,541 @@
+/* ============================================================================
+   Fortress HQ — Frost
+   A lighter, airier take on the Glass system. The scene stays cool grey; the
+   sheets are near-white frost rather than teal-green, and the ink is pulled
+   back from near-black green to a cool charcoal. One accent, once per view.
+   ============================================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* --- ink & type ------------------------------------------------------- */
+  --ink:        #1b2426;   /* headings, key numbers, the dark slab */
+  --ink-soft:   #2c393c;
+  --muted:      #48565a;   /* body copy */
+  --faint:      #6b7a7e;   /* labels, captions, metadata */
+  --ghost:      #93a1a4;   /* disabled, placeholder */
+
+  /* --- accents ---------------------------------------------------------- */
+  --accent:     #eafd35;   /* THE highlighter. Once per viewport. */
+  --accent-dim: #dff05a;
+  --link:       #14706a;   /* accent text on light ground */
+  --link-hover: #0e5751;
+
+  /* --- semantic --------------------------------------------------------- */
+  --good:       #2f8a63;
+  --warn:       #a8761f;
+  --bad:        #c2544a;
+  --info:       #4a7ea3;
+
+  /* --- glass ------------------------------------------------------------ */
+  --frost:        rgba(251, 253, 253, 0.48);
+  --frost-raised: rgba(255, 255, 255, 0.62);
+  --frost-inset:  rgba(255, 255, 255, 0.50);
+  --hairline:     rgba(255, 255, 255, 0.75);
+  --hairline-dim: rgba(255, 255, 255, 0.45);
+  --rule:         rgba(27, 36, 38, 0.09);
+
+  --r-lg: 26px;
+  --r-md: 16px;
+  --r-sm: 10px;
+
+  --shadow-sheet:
+    0 44px 100px -28px rgba(20, 34, 36, 0.34),
+    0 10px 28px -12px rgba(20, 34, 36, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --shadow-raised:
+    0 12px 32px -12px rgba(24, 38, 40, 0.20),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --shadow-slab:
+    0 14px 34px -12px rgba(24, 38, 40, 0.42);
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* --- reset ---------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--muted);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* The scene. A fixed pseudo-element, never background-attachment: fixed —
+   stacked backdrop-filters over a fixed background repaint the whole scene on
+   every scroll frame in Chromium and eat the first click. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    /* Frosted glass only reads if there is something underneath worth blurring.
+       Four pools with genuine tonal and hue range — cool light top-right,
+       deep slate bottom-left, a warm lift bottom-right — over a slate base. */
+    radial-gradient(1000px 700px at 88% -12%, #f2f6f4 0%, transparent 58%),
+    radial-gradient(880px 700px at -8% 96%,  #6f8589 0%, transparent 62%),
+    radial-gradient(620px 520px at 82% 94%,  #cbc3b4 0%, transparent 58%),
+    radial-gradient(760px 600px at 30% 40%,  #aebdbd 0%, transparent 70%),
+    linear-gradient(158deg, #b3c0c1 0%, #8fa0a3 50%, #b9c4c3 100%);
+}
+
+h1, h2, h3, h4 {
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: -0.021em;
+  margin: 0;
+  line-height: 1.2;
+}
+h1 { font-size: clamp(25px, 3.1vw, 32px); letter-spacing: -0.028em; }
+h2 { font-size: 18px; }
+h3 { font-size: 15px; letter-spacing: -0.012em; }
+
+p { margin: 0 0 12px; }
+p:last-child { margin-bottom: 0; }
+
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { color: var(--link-hover); }
+
+strong { color: var(--ink); font-weight: 600; }
+
+code, .mono {
+  font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  font-variant-numeric: tabular-nums;
+}
+
+.num { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+/* --- layout --------------------------------------------------------------- */
+
+.shell { max-width: 1440px; margin: 0 auto; padding: 22px 26px 72px; }
+.stack { display: flex; flex-direction: column; gap: 18px; }
+.row   { display: flex; align-items: center; gap: 12px; }
+.spread{ display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.grow  { flex: 1; min-width: 0; }
+
+/* --- glass surfaces ------------------------------------------------------- */
+
+.sheet {
+  position: relative;
+  background:
+    linear-gradient(150deg,
+      rgba(255, 255, 255, 0.50) 0%,
+      rgba(250, 253, 253, 0.30) 44%,
+      rgba(246, 251, 250, 0.44) 100%),
+    var(--frost);
+  /* No -webkit- prefix here on purpose. With both present, Next's lightningcss
+     collapses the pair and keeps only the prefixed one, which computes to
+     `none` in Chrome and silently removes the frost. */
+  backdrop-filter: blur(40px) saturate(155%);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sheet);
+}
+
+.sheet-pad { padding: 26px 28px; }
+
+.raised {
+  background: var(--frost-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-raised);
+}
+
+.inset {
+  background: var(--frost-inset);
+  border: 1px solid var(--hairline-dim);
+  border-radius: var(--r-md);
+}
+
+hr, .rule { height: 1px; border: 0; background: var(--rule); margin: 22px 0; }
+
+/* --- type helpers --------------------------------------------------------- */
+
+.lede   { font-size: 16px; color: var(--muted); }
+.meta   { font-size: 12.5px; color: var(--faint); }
+.label  {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--faint);
+}
+.dim { color: var(--faint); }
+
+/* --- the one lit thing ---------------------------------------------------- */
+
+.beacon {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--accent); color: var(--ink);
+  font-size: 11.5px; font-weight: 650; letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 5px 11px; border-radius: 999px;
+  box-shadow: 0 2px 10px -2px rgba(180, 200, 20, 0.5);
+}
+
+/* --- buttons -------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font: inherit; font-size: 14px; font-weight: 550;
+  padding: 9px 17px; border-radius: 11px;
+  border: 1px solid transparent;
+  cursor: pointer; text-decoration: none; white-space: nowrap;
+  transition: transform 0.16s var(--ease), box-shadow 0.16s var(--ease),
+              background 0.16s var(--ease), opacity 0.16s var(--ease);
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--ink); color: #eef4f3;
+  box-shadow: var(--shadow-slab);
+}
+.btn-primary:hover:not(:disabled) { background: #101819; color: #fff; }
+
+.btn-accent {
+  background: var(--accent); color: var(--ink); font-weight: 650;
+  box-shadow: 0 10px 26px -10px rgba(180, 200, 20, 0.8);
+}
+.btn-accent:hover:not(:disabled) { background: #f1ff5c; }
+
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: var(--hairline);
+  color: var(--ink);
+  box-shadow: var(--shadow-raised);
+}
+.btn-ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.78); }
+
+.btn-quiet {
+  background: transparent; color: var(--faint); padding: 6px 10px;
+  box-shadow: none;
+}
+.btn-quiet:hover:not(:disabled) { color: var(--ink); background: rgba(255,255,255,0.45); }
+
+.btn-sm { font-size: 13px; padding: 6px 12px; border-radius: 9px; }
+
+/* --- form controls -------------------------------------------------------- */
+
+input[type="text"], input[type="number"], input[type="search"], select, textarea {
+  font: inherit; font-size: 14px; color: var(--ink);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 8px 12px;
+  width: 100%;
+  transition: border-color 0.16s var(--ease), box-shadow 0.16s var(--ease);
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none;
+  border-color: rgba(20, 112, 106, 0.55);
+  box-shadow: 0 0 0 3px rgba(20, 112, 106, 0.14);
+}
+::placeholder { color: var(--ghost); }
+
+/* --- checkbox: custom, because the native one breaks the material --------- */
+
+.check {
+  appearance: none; -webkit-appearance: none;
+  width: 19px; height: 19px; flex: none;
+  border: 1.5px solid rgba(27, 36, 38, 0.28);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.85);
+  cursor: pointer; position: relative;
+  transition: all 0.16s var(--ease);
+}
+.check:hover { border-color: rgba(27, 36, 38, 0.5); }
+.check:checked {
+  background: var(--ink); border-color: var(--ink);
+}
+.check:checked::after {
+  content: ""; position: absolute;
+  left: 5.5px; top: 2px; width: 5px; height: 10px;
+  border: solid var(--accent); border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.check:focus-visible { box-shadow: 0 0 0 3px rgba(20, 112, 106, 0.18); }
+
+/* --- pills & status ------------------------------------------------------- */
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 550; letter-spacing: 0.01em;
+  padding: 3px 9px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--hairline-dim);
+  color: var(--faint);
+  white-space: nowrap;
+}
+.pill-good { color: var(--good); border-color: rgba(47,138,99,0.28); background: rgba(47,138,99,0.09); }
+.pill-warn { color: var(--warn); border-color: rgba(168,118,31,0.28); background: rgba(168,118,31,0.09); }
+.pill-bad  { color: var(--bad);  border-color: rgba(194,84,74,0.28);  background: rgba(194,84,74,0.09); }
+.pill-info { color: var(--info); border-color: rgba(74,126,163,0.28); background: rgba(74,126,163,0.09); }
+
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+/* --- tables --------------------------------------------------------------- */
+
+.table-wrap { overflow-x: auto; border-radius: var(--r-md); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th {
+  text-align: left; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint);
+  padding: 0 14px 9px; white-space: nowrap;
+}
+td {
+  padding: 11px 14px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  vertical-align: middle;
+}
+td.ink { color: var(--ink); font-weight: 550; }
+th.right, td.right { text-align: right; }
+tbody tr { transition: background 0.14s var(--ease); }
+tbody tr:hover { background: rgba(255, 255, 255, 0.4); }
+
+/* --- empty / loading ------------------------------------------------------ */
+
+.empty {
+  text-align: center; padding: 56px 24px; color: var(--faint);
+}
+.empty h3 { color: var(--ink); margin-bottom: 6px; }
+
+.spinner {
+  width: 15px; height: 15px; flex: none;
+  border: 2px solid rgba(27, 36, 38, 0.18);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.rise { animation: rise 0.42s var(--ease) both; }
+
+/* --- responsive ----------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .shell { padding: 16px 14px 56px; }
+  .sheet-pad { padding: 20px 18px; }
+  .sheet { border-radius: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* --- page chrome ---------------------------------------------------------- */
+
+.page-head { margin-bottom: 4px; }
+.page-head h1 { margin-bottom: 5px; }
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+.tile {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: var(--r-md);
+}
+.tile-value {
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.notice {
+  padding: 11px 16px;
+  border-radius: 13px;
+  font-size: 13.5px;
+  border: 1px solid var(--hairline-dim);
+  background: rgba(255, 255, 255, 0.55);
+}
+.notice-good { color: var(--good); border-color: rgba(47,138,99,0.26); background: rgba(47,138,99,0.08); }
+.notice-bad  { color: var(--bad);  border-color: rgba(194,84,74,0.26);  background: rgba(194,84,74,0.08); }
+
+/* --- setup checklist ------------------------------------------------------ */
+
+.checks { list-style: none; margin: 0; padding: 0; }
+.checks li {
+  display: flex;
+  gap: 14px;
+  padding: 15px 0;
+  border-top: 1px solid var(--rule);
+}
+.checks li:first-child { border-top: 0; padding-top: 0; }
+.checks .mark {
+  width: 22px; height: 22px; flex: none;
+  border-radius: 7px;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 700;
+  background: rgba(27, 36, 38, 0.07);
+  color: var(--ghost);
+  margin-top: 1px;
+}
+.checks li.ok .mark { background: var(--ink); color: var(--accent); }
+.checks .body { min-width: 0; flex: 1; }
+.checks .head { display: flex; align-items: center; gap: 10px; margin-bottom: 3px; }
+.checks .detail { margin: 0; }
+.checks .fix {
+  margin: 7px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--hairline-dim);
+  border-radius: 10px;
+  padding: 9px 12px;
+}
+.footnote { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--rule); }
+
+/* ============================================================================
+   Component styles.
+   These live here rather than in styled-jsx: styled-jsx does not add its scope
+   class to <Link> and other components, so link styles written there silently
+   never apply.
+   ============================================================================ */
+
+/* --- nav ------------------------------------------------------------------ */
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding: 11px 18px 11px 20px;
+  margin-bottom: 20px;
+  border-radius: 18px;
+}
+.wordmark {
+  font-size: 16.5px;
+  font-weight: 640;
+  letter-spacing: -0.022em;
+  color: var(--ink);
+  text-decoration: none;
+  flex: none;
+}
+.wordmark:hover { color: var(--ink); }
+.wordmark span { color: var(--link); }
+.nav-links { display: flex; gap: 3px; }
+.nav-link {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--faint);
+  text-decoration: none;
+  padding: 6px 13px;
+  border-radius: 9px;
+  transition: color 0.16s var(--ease), background 0.16s var(--ease);
+}
+.nav-link:hover { color: var(--ink); background: rgba(255, 255, 255, 0.5); }
+.nav-link.active {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: var(--shadow-raised);
+}
+
+/* --- pick list ------------------------------------------------------------ */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 16px;
+}
+.toolbar input { flex: 1; }
+.toolbar .count { white-space: nowrap; }
+.toolbar .count strong { color: var(--ink); }
+
+.group-head { margin-bottom: 16px; align-items: flex-start; }
+
+.list { list-style: none; margin: 0; padding: 0; }
+.list .row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border-top: 1px solid var(--rule);
+  transition: background 0.14s var(--ease);
+}
+.list .row:first-child { border-top: 0; }
+.list .row:hover { background: rgba(255, 255, 255, 0.5); }
+.list .row.manager { opacity: 0.48; }
+.list .info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.list .name {
+  color: var(--ink);
+  font-weight: 520;
+  font-size: 14.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.list .sub {
+  font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.err { color: var(--bad); font-size: 13.5px; }
+
+@media (max-width: 560px) {
+  .nav { gap: 14px; padding: 10px 12px; }
+  .nav-link { padding: 6px 10px; }
+  .toolbar { flex-wrap: wrap; }
+  .toolbar input { flex: 1 1 100%; order: -1; }
+}
+
+
+/* --- login gate ----------------------------------------------------------- */
+
+.gate {
+  min-height: calc(100dvh - 120px);
+  display: grid;
+  place-items: center;
+  padding: 20px 0;
+}
+.login {
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.login .wordmark.big { font-size: 22px; }
+.login .lede { margin-bottom: 14px; font-size: 14.5px; color: var(--faint); }
+.login .label { margin-bottom: -2px; }
+.login .btn { margin-top: 8px; }
+.login .err { color: var(--bad); font-size: 13.5px; margin: 0; }
+
+.nav-out { margin-left: auto; }
+
+/* --- public landing ------------------------------------------------------- */
+
+.landing { max-width: 760px; margin: 0 auto; }
+.landing .wordmark.big { font-size: 20px; }
+.landing h1 { margin: 22px 0 14px; }
+.landing h2 { margin: 30px 0 10px; }
+.landing ul { margin-bottom: 14px; }
+.landing-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid var(--rule);
+}

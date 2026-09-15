@@ -1,0 +1,19 @@
+{
+  "name": "ads-copilot-preflight",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Verifies that the agency service account actually has access to Google Ads, GA4, Search Console and Tag Manager.",
+  "scripts": {
+    "check": "node preflight.mjs",
+    "inventory": "node preflight.mjs --inventory",
+    "auth": "node auth.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "google-auth-library": "^11.0.0",
+    "googleapis": "^181.0.0"
+  }
+}

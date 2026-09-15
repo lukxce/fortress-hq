@@ -1,21 +1,26 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Privacy policy — Fortress HQ</title>
-<meta name="description" content="How Fortress HQ accesses, uses, stores and deletes data from Google APIs.">
-<link rel="stylesheet" href="styles.css">
-</head>
-<body>
-<div class="wrap">
-  <main class="sheet">
-    <a class="wordmark" href="/">Fortress<span>hq</span></a>
+import type { Metadata } from "next";
+import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Privacy policy — Fortress HQ",
+  description: "How Fortress HQ accesses, uses, stores and deletes data from Google APIs.",
+};
+
+// Served at exactly /privacy.html so the URL already registered on the Google
+// OAuth consent screen keeps working. Public by design — brand verification
+// fetches it, and it must never sit behind the password gate.
+export default function Privacy() {
+  return (
+    <div className="shell">
+      <div className="sheet sheet-pad rise" style={{ maxWidth: 820, margin: "0 auto" }}>
+        <Link href="/" className="wordmark">Fortress<span>hq</span></Link>
+
+    
 
     <h1>Privacy policy</h1>
-    <p class="meta">Last updated 15 September 2026</p>
+    <p className="meta">Last updated 15 September 2026</p>
 
-    <hr class="rule">
+    <hr className="rule" />
 
     <h2>In short</h2>
     <p>
@@ -58,7 +63,7 @@
       access at any time without involving us.
     </p>
 
-    <div class="scroller">
+    <div className="scroller">
       <table>
         <thead>
           <tr><th>Scope</th><th>What it lets us do</th><th>Why we need it</th></tr>
@@ -94,7 +99,7 @@
     </p>
 
     <h2>Limited Use</h2>
-    <div class="callout">
+    <div className="callout">
       <p>
         <strong>Fortress HQ's use and transfer to any other app of information
         received from Google APIs will adhere to the
@@ -184,15 +189,14 @@
 
     <h2>Contact</h2>
     <p>
-      Digitl · Niš, Serbia<br>
+      Digitl · Niš, Serbia<br />
       <a href="mailto:luka@digitl.rs">luka@digitl.rs</a>
     </p>
-
-    <footer>
-      <span>Operated by Digitl · Niš, Serbia</span>
-      <a href="/">Back</a>
-    </footer>
-  </main>
-</div>
-</body>
-</html>
+        <footer>
+          <span>Operated by Digitl · Niš, Serbia</span>
+          <Link href="/">Back</Link>
+        </footer>
+      </div>
+    </div>
+  );
+}
