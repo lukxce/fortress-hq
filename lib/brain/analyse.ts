@@ -5,6 +5,9 @@ import { campaignPerformance, periodTotals, pacing } from "@/lib/engine/metrics"
 import { computeFindings, storeFindings } from "@/lib/engine/findings";
 import { segment, keywordSplit } from "@/lib/engine/segments";
 import { monthlyShape } from "@/lib/engine/forensics";
+import { OPERATING_CONTEXT } from "./knowledge/context";
+import { MECHANICS } from "./knowledge/mechanics";
+import { DIAGNOSTICS, WRITING } from "./knowledge/diagnostics";
 
 // Claude Opus 5. Pinned deliberately: the analysis quality of this app must not
 // depend on a setting changed elsewhere for unrelated reasons.
@@ -238,7 +241,15 @@ export async function analyseClient(clientId: number): Promise<{
   const res = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 8000,
-    system: SYSTEM,
+    // Ordered most-stable first so the whole knowledge block sits in a cacheable
+    // prefix: it never changes between runs, while the account data always does.
+    system: [
+      {
+        type: "text" as const,
+        text: [OPERATING_CONTEXT, MECHANICS, DIAGNOSTICS, WRITING, SYSTEM].join("\n\n"),
+        cache_control: { type: "ephemeral" as const },
+      },
+    ],
     output_config: { format: { type: "json_schema", schema } },
     messages: [{
       role: "user",
