@@ -64,30 +64,64 @@ export default async function Home() {
       </header>
 
       <div className="tiles">
-        <Tile label="Accounts selected" value={selected} />
-        <Tile label="Available to import" value={available} />
+        <Tile label="Accounts selected" value={selected} href="/connect" />
+        <Tile label="Available to import" value={available} href="/connect" />
         <Tile label="Clients configured" value={clients} />
       </div>
 
-      {selected === 0 && (
-        <div className="sheet sheet-pad">
-          <h2 style={{ marginBottom: 8 }}>Choose what to import</h2>
-          <p style={{ marginBottom: 18 }}>
-            Discovery has {available > 0 ? `found ${available} account${available === 1 ? "" : "s"} you can reach` : "not run yet"}.
-            Nothing syncs until you select it, so an unselected account costs nothing.
-          </p>
-          <Link href="/connect" className="btn btn-accent">Open the pick list</Link>
-        </div>
-      )}
+      <div className="sheet sheet-pad">
+        {selected === 0 ? (
+          <>
+            <h2 style={{ marginBottom: 8 }}>Choose what to import</h2>
+            <p style={{ marginBottom: 18 }}>
+              Discovery has{" "}
+              {available > 0
+                ? `found ${available} account${available === 1 ? "" : "s"} you can reach`
+                : "not run yet"}
+              . Nothing syncs until you select it, so an unselected account costs
+              nothing.
+            </p>
+            <Link href="/connect" className="btn btn-accent">Open the pick list</Link>
+          </>
+        ) : (
+          <>
+            <h2 style={{ marginBottom: 8 }}>
+              {selected} account{selected === 1 ? "" : "s"} selected
+            </h2>
+            <p style={{ marginBottom: 18 }}>
+              {available > selected
+                ? `${available - selected} more are available if you want them. `
+                : ""}
+              Check on the Connect page which Google products you granted access
+              to — anything ungranted quietly limits what can be measured.
+            </p>
+            <Link href="/connect" className="btn btn-ghost">Manage what is imported</Link>
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
-function Tile({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="sheet tile">
+function Tile({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: number;
+  href?: "/connect";
+}) {
+  const inner = (
+    <>
       <span className="label">{label}</span>
       <span className="tile-value num">{value}</span>
-    </div>
+    </>
+  );
+  if (!href) return <div className="sheet tile">{inner}</div>;
+  return (
+    <Link href={href} className="sheet tile tile-link">
+      {inner}
+    </Link>
   );
 }

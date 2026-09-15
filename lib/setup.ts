@@ -1,6 +1,7 @@
 import { dbReady } from "@/lib/db";
 import { encryptionReady } from "@/lib/crypto";
 import { oauthConfigured, activeConnection, redirectUri } from "@/lib/google/auth";
+import { productAccess, type ProductAccess } from "@/lib/google/scopes";
 import { passwordConfigured } from "@/lib/session";
 
 export type Check = {
@@ -16,6 +17,7 @@ export type Setup = {
   ready: boolean;          // env is configured
   connected: boolean;      // a live Google connection exists
   email: string | null;
+  access: ProductAccess[]; // what that connection can actually reach
 };
 
 /** What the app needs before it can do anything, and what is missing. */
@@ -62,11 +64,13 @@ export async function setupStatus(): Promise<Setup> {
 
   let connected = false;
   let email: string | null = null;
+  let access: ProductAccess[] = productAccess([]);
   if (ready) {
     const conn = await activeConnection();
     connected = Boolean(conn);
     email = conn?.google_email ?? null;
+    if (conn) access = productAccess(conn.scopes ?? []);
   }
 
-  return { checks, ready, connected, email };
+  return { checks, ready, connected, email, access };
 }

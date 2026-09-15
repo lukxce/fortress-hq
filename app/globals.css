@@ -539,3 +539,59 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.4); }
   padding-top: 22px;
   border-top: 1px solid var(--rule);
 }
+
+/* --- connection panel ----------------------------------------------------- */
+
+.conn-head { margin-bottom: 16px; align-items: flex-start; }
+
+.access { list-style: none; margin: 0 0 16px; padding: 0; }
+.access li {
+  display: flex;
+  gap: 13px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+}
+.access li:first-child { border-top: 0; }
+.access .mark {
+  width: 21px; height: 21px; flex: none;
+  border-radius: 7px;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 700;
+  background: rgba(27, 36, 38, 0.07);
+  color: var(--ghost);
+  margin-top: 1px;
+}
+.access li.granted .mark { background: var(--ink); color: var(--accent); }
+.access .body { min-width: 0; flex: 1; }
+.access .row-head { display: flex; align-items: center; gap: 9px; margin-bottom: 1px; }
+.access .meta { margin: 0; }
+.access li.denied strong { color: var(--faint); }
+
+.notice-warn {
+  color: var(--warn);
+  border-color: rgba(168, 118, 31, 0.26);
+  background: rgba(168, 118, 31, 0.08);
+}
+
+.conn-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+.conn-actions .btn-quiet { margin-left: auto; }
+
+.tile-link {
+  text-decoration: none;
+  transition: transform 0.16s var(--ease), box-shadow 0.16s var(--ease);
+}
+.tile-link:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 52px 110px -28px rgba(20, 34, 36, 0.38),
+    0 12px 30px -12px rgba(20, 34, 36, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+.tile-link:active { transform: translateY(0); }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { setupStatus } from "@/lib/setup";
 import { q } from "@/lib/db";
 import { PickList, type InventoryRow } from "@/components/PickList";
+import { ConnectionPanel } from "@/components/ConnectionPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,8 @@ export default async function Connect({
         </div>
       )}
       {sp.error && <div className="notice notice-bad">{sp.error}</div>}
+
+      <ConnectionPanel email={setup.email} access={setup.access} />
 
       <PickList initial={rows} />
     </div>
