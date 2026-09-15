@@ -14,10 +14,10 @@ No build step, no dependencies.
 
 ## Before you deploy — two things to fix
 
-1. **`privacy@fortress-hq.com` must actually receive mail.** It appears three
-   times in `privacy.html`. A privacy policy with a dead contact address is a
-   common verification rejection. Either set up forwarding at your registrar or
-   swap it for an address that already works.
+1. ~~Contact address must receive mail.~~ **Done.** `fortress-hq.com` has no MX
+   records, so the original `privacy@fortress-hq.com` would have bounced. The
+   policy now uses `luka@digitl.rs`, which resolves to Google Workspace. Switch
+   it back to a branded address once mail is set up on this domain.
 2. **Check the facts.** The policy states Digitl is the operator, based in Niš,
    and describes retention as "engagement plus twelve months". Correct anything
    that is not true of how you actually intend to run it. It has to match
