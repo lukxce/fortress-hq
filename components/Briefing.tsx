@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 type Totals = {
   spend: number; clicks: number; impressions: number;
@@ -10,7 +10,21 @@ type Totals = {
   ctr: number | null; cvr: number | null;
 };
 
+type SegRow = {
+  key: string; impressions: number; clicks: number; spend: number;
+  conversions: number; value: number;
+  cpa: number | null; cvr: number | null; share: number;
+};
+
 type Props = {
+  days: number;
+  ranges: number[];
+  segments: Record<"device" | "hour" | "day_of_week" | "network", SegRow[]>;
+  keywords: {
+    workers: any[]; spenders: any[]; lowQuality: any[];
+    totalSpend: number; spenderSpend: number;
+  };
+  gtmTags: any[];
   client: {
     id: number; name: string;
     goalType: "cpa" | "roas" | null;
@@ -74,12 +88,12 @@ export function Briefing(p: Props) {
         <div>
           <h1>{p.client.name}</h1>
           <p className="meta">
-            Last 30 days
-            {p.lastSync && <> · synced {ago(p.lastSync)}</>}
+            {p.lastSync ? <>synced {ago(p.lastSync)}</> : "not synced yet"}
             {p.lastAnalysis && <> · analysed {ago(p.lastAnalysis)}</>}
           </p>
         </div>
         <div className="row">
+          <RangePicker days={p.days} ranges={p.ranges} />
           <button className="btn btn-ghost btn-sm" onClick={() => run("sync")} disabled={busy !== null}>
             {busy === "sync" && <span className="spinner" />}
             {busy === "sync" ? "Pulling…" : "Sync now"}
@@ -145,11 +159,17 @@ export function Briefing(p: Props) {
 
           <Chart series={p.series} money={money} />
 
+          <WhereItGoes segments={p.segments} money={money} />
+
+          <Keywords kw={p.keywords} money={money} />
+
           {p.insights.length > 0 && <Insights insights={p.insights} />}
 
           {p.findings.length > 0 && <Findings findings={p.findings} money={money} />}
 
           <Campaigns campaigns={p.campaigns} money={money} goalType={p.client.goalType} />
+
+          <TagManager tags={p.gtmTags} connected={p.client.hasTagManager} />
 
           <Coverage client={p.client} />
 
@@ -431,6 +451,297 @@ function Campaigns({ campaigns, money, goalType }: any) {
         </table>
       </div>
     </section>
+  );
+}
+
+// ------------------------------------------------------------ date range ---
+
+function RangePicker({ days, ranges }: { days: number; ranges: number[] }) {
+  const router = useRouter();
+  const path = usePathname();
+  return (
+    <div className="ranges">
+      {ranges.map((r) => (
+        <button
+          key={r}
+          className={`range${r === days ? " on" : ""}`}
+          onClick={() => router.push(`${path}?days=${r}` as never)}
+          type="button"
+        >
+          {r >= 365 ? "1y" : r >= 180 ? "6m" : `${r}d`}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ------------------------------------------------------- where it goes -----
+
+const DEVICE_LABEL: Record<string, string> = {
+  MOBILE: "Mobile", DESKTOP: "Desktop", TABLET: "Tablet",
+  CONNECTED_TV: "Connected TV", OTHER: "Other",
+};
+const NETWORK_LABEL: Record<string, string> = {
+  SEARCH: "Google search", SEARCH_PARTNERS: "Search partners",
+  CONTENT: "Display network", YOUTUBE: "YouTube",
+  YOUTUBE_SEARCH: "YouTube search", YOUTUBE_WATCH: "YouTube watch", MIXED: "Mixed",
+};
+const DOW_ORDER = ["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY"];
+
+function WhereItGoes({ segments, money }: { segments: Props["segments"]; money: any }) {
+  const [tab, setTab] = useState<"device" | "hour" | "day_of_week" | "network">("device");
+  const any = Object.values(segments).some((s) => s.length > 0);
+  if (!any) return null;
+
+  const TABS = [
+    { key: "device" as const, label: "Device" },
+    { key: "hour" as const, label: "Hour of day" },
+    { key: "day_of_week" as const, label: "Day of week" },
+    { key: "network" as const, label: "Network" },
+  ].filter((t) => segments[t.key].length > 0);
+
+  const rows = segments[tab];
+
+  return (
+    <section className="sheet sheet-pad">
+      <div className="spread" style={{ marginBottom: 14 }}>
+        <div>
+          <h2>Where the money goes</h2>
+          <p className="meta">Last 90 days, so the pattern has volume behind it.</p>
+        </div>
+        <div className="ranges">
+          {TABS.map((t) => (
+            <button key={t.key} type="button"
+              className={`range${tab === t.key ? " on" : ""}`}
+              onClick={() => setTab(t.key)}>{t.label}</button>
+          ))}
+        </div>
+      </div>
+      {tab === "hour" ? <HourBars rows={rows} money={money} /> : <SegTable rows={rows} tab={tab} money={money} />}
+    </section>
+  );
+}
+
+function SegTable({ rows, tab, money }: any) {
+  const label = (k: string) =>
+    tab === "device" ? DEVICE_LABEL[k] ?? k
+    : tab === "network" ? NETWORK_LABEL[k] ?? k.replace(/_/g, " ")
+    : k.charAt(0) + k.slice(1).toLowerCase();
+
+  const ordered = tab === "day_of_week"
+    ? [...rows].sort((a: SegRow, b: SegRow) => DOW_ORDER.indexOf(a.key) - DOW_ORDER.indexOf(b.key))
+    : rows;
+
+  const best = rows.filter((r: SegRow) => r.cpa !== null)
+    .reduce((a: SegRow | null, b: SegRow) => (!a || b.cpa! < a.cpa! ? b : a), null);
+
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th></th><th className="right">Spend</th><th className="right">Share</th>
+            <th className="right">Clicks</th><th className="right">Conv.</th>
+            <th className="right">Cost / conv.</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ordered.map((r: SegRow) => {
+            const dead = r.conversions === 0 && r.spend > 0;
+            return (
+              <tr key={r.key} className={dead ? "row-bad" : ""}>
+                <td className="ink">{label(r.key)}</td>
+                <td className="right num">{money(r.spend)}</td>
+                <td className="right num dim">{r.share.toFixed(0)}%</td>
+                <td className="right num dim">{r.clicks.toLocaleString()}</td>
+                <td className="right num">{r.conversions.toFixed(0)}</td>
+                <td className="right num">
+                  {r.cpa !== null
+                    ? <>{money(r.cpa, 2)}{best && r.key === best.key && <span className="pill pill-good" style={{ marginLeft: 8 }}>best</span>}</>
+                    : <span className="pill pill-bad">none</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function HourBars({ rows, money }: any) {
+  const byHour = new Map(rows.map((r: SegRow) => [Number(r.key), r]));
+  const hours = Array.from({ length: 24 }, (_, h) => (byHour.get(h) ?? null) as SegRow | null);
+  const max = Math.max(...hours.map((r) => r?.spend ?? 0), 1);
+
+  return (
+    <>
+      <div className="hours">
+        {hours.map((r, h) => {
+          const spend = r?.spend ?? 0;
+          const dead = r != null && r.conversions === 0 && spend > 0;
+          return (
+            <div key={h} className="hour" title={
+              r ? `${pad2(h)}:00 — ${money(spend)}, ${r.clicks} clicks, ${r.conversions.toFixed(0)} conversions` : `${pad2(h)}:00 — no spend`
+            }>
+              <div className="hour-track">
+                <div className={`hour-fill${dead ? " dead" : ""}`}
+                     style={{ height: `${(spend / max) * 100}%` }} />
+              </div>
+              {h % 3 === 0 && <span className="hour-label">{pad2(h)}</span>}
+            </div>
+          );
+        })}
+      </div>
+      <p className="meta" style={{ marginTop: 10 }}>
+        Red bars took spend and produced no conversions across the whole 90 days.
+      </p>
+    </>
+  );
+}
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+// -------------------------------------------------------------- keywords ---
+
+function Keywords({ kw, money }: any) {
+  const [tab, setTab] = useState<"spenders" | "workers" | "lowQuality">("spenders");
+  if (!kw.workers.length && !kw.spenders.length && !kw.lowQuality.length) return null;
+
+  const TABS = [
+    { key: "spenders" as const, label: `Spending, not converting (${kw.spenders.length})` },
+    { key: "workers" as const, label: `Converting (${kw.workers.length})` },
+    { key: "lowQuality" as const, label: `Low quality (${kw.lowQuality.length})` },
+  ].filter((t) => kw[t.key].length > 0);
+
+  const rows = kw[tab];
+
+  return (
+    <section className="sheet sheet-pad">
+      <div className="spread" style={{ marginBottom: 14 }}>
+        <div>
+          <h2>Keywords</h2>
+          <p className="meta">
+            {kw.spenderSpend > 0
+              ? `${money(kw.spenderSpend)} of ${money(kw.totalSpend)} went to keywords that never converted.`
+              : "Last 90 days."}
+          </p>
+        </div>
+        <div className="ranges">
+          {TABS.map((t) => (
+            <button key={t.key} type="button"
+              className={`range${tab === t.key ? " on" : ""}`}
+              onClick={() => setTab(t.key)}>{t.label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Keyword</th><th>Match</th>
+              <th className="right">Spend</th><th className="right">Clicks</th>
+              {tab === "lowQuality"
+                ? <><th className="right">QS</th><th>Weakest</th></>
+                : <th className="right">Cost / conv.</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((k: any, i: number) => (
+              <tr key={i} className={tab === "spenders" ? "row-bad" : ""}>
+                <td className="ink">{k.text}</td>
+                <td className="dim">{(k.matchType ?? "").toLowerCase()}</td>
+                <td className="right num">{money(k.spend)}</td>
+                <td className="right num dim">{k.clicks}</td>
+                {tab === "lowQuality" ? (
+                  <>
+                    <td className="right num">{k.qualityScore}</td>
+                    <td className="dim">{weakest(k)}</td>
+                  </>
+                ) : (
+                  <td className="right num">
+                    {k.cpa !== null ? money(k.cpa, 2) : <span className="pill pill-bad">none</span>}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function weakest(k: any): string {
+  const below = [
+    k.adRelevance === "BELOW_AVERAGE" && "ad relevance",
+    k.landingPage === "BELOW_AVERAGE" && "landing page",
+    k.expectedCtr === "BELOW_AVERAGE" && "expected CTR",
+  ].filter(Boolean);
+  return below.length ? (below as string[]).join(", ") : "—";
+}
+
+// ----------------------------------------------------------- tag manager ---
+
+function TagManager({ tags, connected }: { tags: any[]; connected: boolean }) {
+  if (!connected) return null;
+  if (!tags.length) {
+    return (
+      <div className="notice notice-warn">
+        <strong>Tag Manager is connected but nothing has been read yet.</strong>{" "}
+        Run a sync to pull the live container and check whether measurement is
+        actually wired.
+      </div>
+    );
+  }
+
+  const linker = tags.some((t) => t.type === "gclidw" && !t.paused);
+  const adsConv = tags.filter((t) => t.type === "awct");
+  const ga4 = tags.filter((t) => t.type === "gaawe" || t.type === "googtag");
+  const paused = tags.filter((t) => t.paused);
+
+  return (
+    <section className="sheet sheet-pad">
+      <div className="spread" style={{ marginBottom: 14 }}>
+        <h2>Tag Manager</h2>
+        <span className="meta">{tags.length} tags in the live container</span>
+      </div>
+      <ul className="access">
+        <Check
+          ok={adsConv.length > 0}
+          label="Google Ads conversion tag"
+          detail={adsConv.length ? `${adsConv.length} present` : "None found — conversions cannot be recorded from this container"}
+        />
+        <Check
+          ok={linker}
+          label="Conversion Linker"
+          detail={linker
+            ? "Present, so the click identifier is stored"
+            : "Missing. Without it conversions are attributed to nothing and under-report"}
+        />
+        <Check
+          ok={ga4.length > 0}
+          label="Google tag / Analytics"
+          detail={ga4.length ? `${ga4.length} present` : "Not found in this container"}
+        />
+        <Check
+          ok={paused.length === 0}
+          label="No paused measurement tags"
+          detail={paused.length ? `${paused.length} paused: ${paused.slice(0,3).map((t:any)=>t.name).join(", ")}` : "Everything live"}
+        />
+      </ul>
+    </section>
+  );
+}
+
+function Check({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
+  return (
+    <li className={ok ? "granted" : "denied"}>
+      <span className="mark" aria-hidden>{ok ? "✓" : "—"}</span>
+      <div className="body">
+        <div className="row-head"><strong>{label}</strong></div>
+        <p className="meta">{detail}</p>
+      </div>
+    </li>
   );
 }
 

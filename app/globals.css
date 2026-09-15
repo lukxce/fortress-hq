@@ -786,3 +786,50 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.4); }
 .binding { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
 .binding strong { color: var(--ink); font-size: 14px; }
 .new-form .btn { align-self: flex-start; }
+
+/* --- range / tab picker --------------------------------------------------- */
+
+.ranges {
+  display: inline-flex; gap: 2px; padding: 3px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid var(--hairline-dim);
+  border-radius: 11px;
+}
+.range {
+  font: inherit; font-size: 12.5px; font-weight: 550;
+  color: var(--faint); background: transparent; border: 0;
+  padding: 5px 11px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  transition: all 0.14s var(--ease);
+}
+.range:hover { color: var(--ink); }
+.range.on {
+  color: var(--ink); background: rgba(255,255,255,0.9);
+  box-shadow: 0 1px 4px rgba(24,38,40,0.1);
+}
+
+tr.row-bad td { background: rgba(194, 84, 74, 0.05); }
+td.dim { color: var(--faint); }
+
+/* --- hour-of-day bars ----------------------------------------------------- */
+
+.hours {
+  display: grid; grid-template-columns: repeat(24, 1fr);
+  gap: 3px; height: 130px; align-items: end;
+}
+.hour { display: flex; flex-direction: column; align-items: center; height: 100%; gap: 5px; }
+.hour-track {
+  flex: 1; width: 100%; display: flex; align-items: flex-end;
+  background: rgba(27,36,38,0.05); border-radius: 3px; overflow: hidden;
+}
+.hour-fill {
+  width: 100%; background: var(--ink); border-radius: 3px 3px 0 0;
+  min-height: 2px; transition: opacity 0.14s var(--ease);
+}
+.hour-fill.dead { background: var(--bad); }
+.hour:hover .hour-fill { opacity: 0.75; }
+.hour-label { font-size: 10px; color: var(--ghost); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 720px) {
+  .hours { height: 100px; gap: 2px; }
+  .hour-label { display: none; }
+}

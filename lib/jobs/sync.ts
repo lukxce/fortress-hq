@@ -5,6 +5,7 @@ import { activeConnection, clientFor } from "@/lib/google/auth";
 import { searchStream, digits } from "@/lib/google/ads";
 import { countOps } from "@/lib/google/quota";
 import { clientWithProperties, type ClientWithProps } from "@/lib/binding";
+import { syncSegments, syncKeywords, syncLandingPages, syncGtm } from "./segments";
 
 // Window sizes are a direct consequence of read economics. A GAQL query costs
 // one operation regardless of how many rows come back, so a wide window is
@@ -57,9 +58,19 @@ export async function syncClient(clientId: number): Promise<SyncReport> {
     await step("daily metrics", () => syncMetrics(auth, client));
     await step("search terms", () => syncSearchTerms(auth, client));
     await step("conversion actions", () => syncConversionActions(auth, client));
+    // The depth: where the money actually went, rather than that it went.
+    await step("keywords", () => syncKeywords(auth, client));
+    await step("landing pages", () => syncLandingPages(auth, client));
+    await step("segments", async () => {
+      const res = await syncSegments(auth, client);
+      const failed = res.filter((r) => r.error);
+      if (failed.length === res.length) throw new Error(failed[0].error!);
+      return res.reduce((n, r) => n + r.rows, 0);
+    });
   }
   if (client.ga4_property_id) await step("analytics", () => syncGa4(auth, client));
   if (client.gsc_site_url) await step("search console", () => syncGsc(auth, client));
+  if (client.gtm_container_id) await step("tag manager", () => syncGtm(auth, client));
 
   await q(
     `INSERT INTO job_runs (job, client_id, day, status, finished_at, detail)

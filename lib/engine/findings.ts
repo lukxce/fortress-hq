@@ -1,6 +1,7 @@
 import { q, tx } from "@/lib/db";
 import { clientWithProperties, type ClientWithProps } from "@/lib/binding";
 import { campaignPerformance, periodTotals, pacing, fromMicros } from "./metrics";
+import { segmentFindings } from "./segments";
 
 export type Finding = {
   kind: string;
@@ -35,6 +36,10 @@ export async function computeFindings(clientId: number): Promise<Finding[]> {
   out.push(...trendFindings(current, previous));
   out.push(...(await trackingFindings(clientId, client, current)));
   out.push(...(await overlapFindings(clientId, client)));
+  out.push(...(await gtmFindings(clientId, client)));
+  // Everything above works from campaign totals. These work from the
+  // segmentation, and are where the actionable detail lives.
+  out.push(...(await segmentFindings(clientId)));
 
   return out.sort((a, b) => {
     const rank = { critical: 0, warning: 1, info: 2 };
@@ -403,6 +408,62 @@ export async function storeFindings(clientId: number, findings: Finding[]): Prom
       [clientId]
     );
   });
+}
+
+// ------------------------------------------------------------ tag manager ---
+
+/**
+ * Whether the measurement plumbing is actually wired, rather than merely
+ * connected. A container that exists but has no conversion linker is the most
+ * common cause of conversions quietly under-reporting.
+ */
+async function gtmFindings(clientId: number, client: ClientWithProps): Promise<Finding[]> {
+  if (!client.gtm_container_id) return [];
+
+  const tags = await q<any>(
+    `SELECT name, type, paused, consent_status FROM gtm_tags WHERE client_id = $1`,
+    [clientId]
+  );
+  if (!tags.length) return [];
+
+  const out: Finding[] = [];
+  const has = (t: string) => tags.some((x) => x.type === t && !x.paused);
+  const adsConversion = tags.filter((t) => t.type === "awct");
+  const linker = has("gclidw");
+
+  if (adsConversion.length > 0 && !linker) {
+    out.push({
+      kind: "gtm_no_conversion_linker",
+      severity: "critical",
+      title: "Ads conversion tags are firing without a Conversion Linker",
+      detail: `The container has ${adsConversion.length} Google Ads conversion tag${adsConversion.length === 1 ? "" : "s"} but no active Conversion Linker. Without it the click identifier is not stored, so conversions are attributed to nothing and under-report — often badly.`,
+      evidence: { conversionTags: adsConversion.length, linkerPresent: false },
+    });
+  }
+
+  const paused = tags.filter((t) => t.paused && /awct|gaawe|googtag/.test(t.type ?? ""));
+  if (paused.length) {
+    out.push({
+      kind: "gtm_paused_measurement_tags",
+      severity: "warning",
+      title: `${paused.length} measurement tag${paused.length === 1 ? " is" : "s are"} paused`,
+      detail: `Paused tags do not fire: ${paused.map((t) => `"${t.name}"`).join(", ")}. If any of these carry a conversion, it is not being recorded.`,
+      evidence: { tags: paused.map((t) => ({ name: t.name, type: t.type })) },
+    });
+  }
+
+  const unset = tags.filter((t) => !t.consent_status || t.consent_status === "notSet");
+  if (unset.length && unset.length === tags.length) {
+    out.push({
+      kind: "gtm_consent_unset",
+      severity: "info",
+      title: "No tag in the container declares consent settings",
+      detail: `All ${tags.length} tags have consent left unset. That is legal exposure in the EEA rather than a measurement problem, but it is worth a decision rather than a default.`,
+      evidence: { tagCount: tags.length },
+    });
+  }
+
+  return out;
 }
 
 function money(n: number, currency: string | null): string {

@@ -3,6 +3,7 @@ import { q, q1 } from "@/lib/db";
 import { clientWithProperties } from "@/lib/binding";
 import { campaignPerformance, periodTotals, pacing } from "@/lib/engine/metrics";
 import { computeFindings, storeFindings } from "@/lib/engine/findings";
+import { segment, keywordSplit } from "@/lib/engine/segments";
 
 // Claude Opus 5. Pinned deliberately: the analysis quality of this app must not
 // depend on a setting changed elsewhere for unrelated reasons.
@@ -55,6 +56,23 @@ async function buildContext(clientId: number) {
       FROM conversion_actions WHERE client_id = $1 AND status = 'ENABLED'
   `, [clientId]);
 
+  // The segmentation. Without this the model can only restate the totals it was
+  // given; with it, it can say where the money is actually going.
+  const [devices, hours, dow, networks, geo, keywords, landing, gtmTags] =
+    await Promise.all([
+      segment(clientId, "device"),
+      segment(clientId, "hour"),
+      segment(clientId, "day_of_week"),
+      segment(clientId, "network"),
+      segment(clientId, "geo"),
+      keywordSplit(clientId),
+      q<any>(`SELECT url, clicks, cost_micros/1e6 AS spend, conversions
+                FROM landing_pages WHERE client_id = $1
+               ORDER BY cost_micros DESC LIMIT 15`, [clientId]),
+      q<any>(`SELECT name, type, paused, consent_status
+                FROM gtm_tags WHERE client_id = $1`, [clientId]),
+    ]);
+
   return {
     client: {
       name: client.name,
@@ -79,24 +97,65 @@ async function buildContext(clientId: number) {
       severity: f.severity, title: f.title, detail: f.detail,
       moneyAtStake: f.moneyAtStake, evidence: f.evidence,
     })),
+    // 90-day windows. These are pattern questions, so they need volume.
+    segmentation: {
+      note: "All segment figures cover the last 90 days.",
+      byDevice: devices,
+      byHourOfDay: hours.map((h) => ({ hour: Number(h.key), ...h })).sort((a, b) => a.hour - b.hour),
+      byDayOfWeek: dow,
+      byNetwork: networks,
+      byCountry: geo.slice(0, 10),
+    },
+    keywords: {
+      converting: keywords.workers.slice(0, 20),
+      spendingWithoutConverting: keywords.spenders.slice(0, 20),
+      lowQualityScore: keywords.lowQuality.slice(0, 15),
+      totalKeywordSpend: keywords.totalSpend,
+      spendOnNonConverting: keywords.spenderSpend,
+    },
+    landingPages: landing,
+    tagManager: gtmTags.length
+      ? { tagCount: gtmTags.length, tags: gtmTags }
+      : { note: "Tag Manager not connected or not yet synced." },
   };
 }
 
-const SYSTEM = `You are the analyst behind an advertising operations platform. You are writing for the person who owns the outcome — an agency operator briefing themselves before they act, or before they talk to the client whose money this is.
+const SYSTEM = `You are the analyst behind an advertising operations platform, writing for the person who owns the outcome: an agency operator deciding what to do this week, or preparing to justify it to the client whose money this is.
 
 Every number you are given was computed from the account's own data before you saw it. Interpret and prioritise those numbers. Never calculate new ones, never estimate, and never state a figure that is not in the input.
 
-How to write:
-- Lead with what is true and what it costs. The reader can already see the dashboard; they need to know what it means.
-- Be specific. "Three campaigns are burning budget on branded terms you already rank first for" beats "consider reviewing your keyword strategy".
-- Say what you do not know. If tracking is broken, say every efficiency figure downstream is unreliable, and say that before anything else.
+WHAT A GOOD ANSWER LOOKS LIKE
+
+You have segmentation, not just totals. Use it. The difference between a useless insight and a valuable one is specificity:
+
+  Useless: "Cost per conversion has increased. Consider optimising your campaigns."
+  Valuable: "Mobile is 71% of spend and has not converted once in 90 days, while desktop converts at 23. The mobile bid adjustment is buying traffic that never arrives at a lead."
+
+  Useless: "Review your keywords."
+  Valuable: "Eleven keywords took 4,200 with zero conversions across 90 days and at least 25 clicks each. 'klima uredjaji cena' alone is 900 of that. These are not a data problem, they are the wrong intent."
+
+  Useless: "Consider dayparting."
+  Valuable: "02:00-06:00 takes 12% of spend and has never produced a conversion in 90 days. An ad schedule excluding those hours moves roughly 800 a month into hours that already work."
+
+Reach for the segmentation every time. Device, hour of day, day of week, network, country, keyword, landing page, and the Tag Manager container are all in the input. If one of them explains a headline number, say so — that is the entire job.
+
+Name the mechanism, not just the symptom. "CPA rose 40%" is a symptom. "CPA rose because search partners went from 4% to 22% of spend and convert at a third the rate" is a cause someone can act on.
+
+RULES
+
+- Lead with what is true and what it costs. The reader can already see the dashboard.
+- If measurement is broken, say that first and say every efficiency figure downstream is unreliable. Never recommend optimisation on top of numbers you have just called untrustworthy.
+- Respect volume. Never draw a conclusion from a segment with trivial traffic; if the data is too thin to support a claim, say that instead of making one.
+- Distinguish correlation from cause. Paid and organic overlap, or a day-of-week gap, are observations — say what would confirm them.
+- Every next step must be a specific action on a named thing: this campaign, this keyword, this bid adjustment, this hour range. Never "review", "monitor", "consider optimising".
 - No filler, no hedging, no motivational language. Never open with "it's important to note".
-- Write plainly. A smart reader who is not an advertising specialist should follow every sentence.
-- Where a finding is correlational rather than causal, say so plainly rather than implying certainty.
+- Plain language. A smart reader who is not an advertising specialist should follow every sentence.
 
-Priority means: 1 is losing money or measuring wrong today. 2 matters this month. 3 is worth knowing.
+PRIORITY
 
-Return between 3 and 6 insights. Fewer, sharper ones beat a long list.`;
+1 = losing money or measuring wrong today. 2 = matters this month. 3 = worth knowing.
+
+Return between 3 and 6 insights, ordered by priority. Fewer and sharper beats a long list. If the account is genuinely healthy, say so in one insight rather than manufacturing five.`;
 
 export async function analyseClient(clientId: number): Promise<{
   insights: Insight[];
