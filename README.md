@@ -51,6 +51,22 @@ curl -sI https://fortress-hq.com/privacy.html | head -1
 - **Verification Center** — submit brand verification.
 - Verify `fortress-hq.com` in Search Console first, or the domain check fails.
 
+## Brand verification: the prerequisite people miss
+
+Google will not complete brand verification until the **top private domain**
+(`fortress-hq.com`, not `www.`) is verified in Search Console by an owner. Until
+that is done, applying for Basic access returns "you haven't completed brand
+verification" every time, which reads like a rejection but is just the chain not
+being finished.
+
+Nameservers are Vercel, so the TXT record goes in the Vercel dashboard under
+Domains, not at the registrar.
+
+The home page is also checked for relevance to the app under review. It states
+what the application does, rather than what it is not, for that reason. Do not
+re-add `noindex` or language describing the page as a placeholder while
+verification is pending.
+
 ## Note on this domain's future
 
 If `fortress-hq.com` later becomes the Fortress HQ product marketing site, this
