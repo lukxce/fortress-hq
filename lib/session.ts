@@ -77,3 +77,29 @@ export function passwordConfigured(): boolean {
 
 export const SESSION_COOKIE = COOKIE;
 export const SESSION_MAX_AGE = MAX_AGE_DAYS * 24 * 60 * 60;
+
+/**
+ * Cookie domain, so one session covers both the apex and www.
+ *
+ * A cookie set without a Domain attribute is host-only: signing in on
+ * www.example.com leaves example.com logged out, and vice versa. The apex
+ * redirects to www today, but relying on that means one stray link to the apex
+ * silently logs you out. Setting the registrable domain covers both.
+ *
+ * Returns undefined for localhost and for anything without a dot, where a
+ * Domain attribute is either invalid or pointless.
+ */
+export function sessionCookieDomain(): string | undefined {
+  const url = process.env.APP_URL?.trim();
+  if (!url) return undefined;
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+  if (host === "localhost" || !host.includes(".")) return undefined;
+  // Strip a leading www. so the cookie applies to the apex and every subdomain.
+  const base = host.replace(/^www\./, "");
+  return `.${base}`;
+}

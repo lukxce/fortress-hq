@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import {
-  checkPassword, issueToken, passwordConfigured,
+  checkPassword, issueToken, passwordConfigured, sessionCookieDomain,
   SESSION_COOKIE, SESSION_MAX_AGE,
 } from "@/lib/session";
 
@@ -44,6 +44,9 @@ export async function POST(req: NextRequest) {
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: SESSION_MAX_AGE,
+    // Covers the apex and www together; without it the cookie is host-only and
+    // moving between them logs you out.
+    domain: sessionCookieDomain(),
   });
 
   return NextResponse.json({ ok: true });
@@ -51,6 +54,14 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE() {
   const jar = await cookies();
-  jar.delete(SESSION_COOKIE);
+  // Must match the attributes it was set with, or the browser keeps it.
+  jar.set(SESSION_COOKIE, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 0,
+    domain: sessionCookieDomain(),
+  });
   return NextResponse.json({ ok: true });
 }

@@ -22,6 +22,10 @@ export function LoginForm({ next }: { next: string }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!password) {
+      setError("Enter your password.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -61,7 +65,7 @@ export function LoginForm({ next }: { next: string }) {
 
       {error && <p className="err">{error}</p>}
 
-      <button className="btn btn-primary" type="submit" disabled={busy || !password}>
+      <button className="btn btn-primary" type="submit" disabled={busy}>
         {busy && <span className="spinner" />}
         {busy ? "Checking…" : "Sign in"}
       </button>
