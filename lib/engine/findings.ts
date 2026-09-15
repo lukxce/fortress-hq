@@ -413,54 +413,59 @@ export async function storeFindings(clientId: number, findings: Finding[]): Prom
 // ------------------------------------------------------------ tag manager ---
 
 /**
- * Whether the measurement plumbing is actually wired, rather than merely
- * connected. A container that exists but has no conversion linker is the most
- * common cause of conversions quietly under-reporting.
+ * Whether measurement is actually wired, not merely connected.
+ *
+ * Only live tags are considered. A container accumulates paused tags the way a
+ * drawer accumulates cables — old experiments, replaced vendors, seasonal
+ * promos — and reporting them is noise that buries the one thing that matters:
+ * whether the conversion that is supposed to fire, fires correctly.
  */
 async function gtmFindings(clientId: number, client: ClientWithProps): Promise<Finding[]> {
   if (!client.gtm_container_id) return [];
 
-  const tags = await q<any>(
+  const all = await q<any>(
     `SELECT name, type, paused, consent_status FROM gtm_tags WHERE client_id = $1`,
     [clientId]
   );
-  if (!tags.length) return [];
+  if (!all.length) return [];
 
+  const live = all.filter((t) => !t.paused);
   const out: Finding[] = [];
-  const has = (t: string) => tags.some((x) => x.type === t && !x.paused);
-  const adsConversion = tags.filter((t) => t.type === "awct");
-  const linker = has("gclidw");
+
+  // awct = Google Ads conversion, gclidw = Conversion Linker.
+  const adsConversion = live.filter((t) => t.type === "awct");
+  const linker = live.some((t) => t.type === "gclidw");
 
   if (adsConversion.length > 0 && !linker) {
     out.push({
       kind: "gtm_no_conversion_linker",
       severity: "critical",
-      title: "Ads conversion tags are firing without a Conversion Linker",
-      detail: `The container has ${adsConversion.length} Google Ads conversion tag${adsConversion.length === 1 ? "" : "s"} but no active Conversion Linker. Without it the click identifier is not stored, so conversions are attributed to nothing and under-report — often badly.`,
-      evidence: { conversionTags: adsConversion.length, linkerPresent: false },
+      title: "Live Ads conversion tags are firing without a Conversion Linker",
+      detail: `${adsConversion.length} Google Ads conversion tag${adsConversion.length === 1 ? " is" : "s are"} live in this container, but no Conversion Linker is. Without it the click identifier is never stored, so conversions cannot be attributed back to the click that caused them and under-report — often severely, while the dashboard looks fine.`,
+      evidence: {
+        liveConversionTags: adsConversion.map((t) => t.name),
+        linkerPresent: false,
+      },
     });
   }
 
-  const paused = tags.filter((t) => t.paused && /awct|gaawe|googtag/.test(t.type ?? ""));
-  if (paused.length) {
-    out.push({
-      kind: "gtm_paused_measurement_tags",
-      severity: "warning",
-      title: `${paused.length} measurement tag${paused.length === 1 ? " is" : "s are"} paused`,
-      detail: `Paused tags do not fire: ${paused.map((t) => `"${t.name}"`).join(", ")}. If any of these carry a conversion, it is not being recorded.`,
-      evidence: { tags: paused.map((t) => ({ name: t.name, type: t.type })) },
-    });
-  }
-
-  const unset = tags.filter((t) => !t.consent_status || t.consent_status === "notSet");
-  if (unset.length && unset.length === tags.length) {
-    out.push({
-      kind: "gtm_consent_unset",
-      severity: "info",
-      title: "No tag in the container declares consent settings",
-      detail: `All ${tags.length} tags have consent left unset. That is legal exposure in the EEA rather than a measurement problem, but it is worth a decision rather than a default.`,
-      evidence: { tagCount: tags.length },
-    });
+  // A container with no live conversion tag at all, on an account that spends,
+  // is worth saying out loud.
+  if (adsConversion.length === 0) {
+    const [spend] = await q<{ cost_micros: string }>(
+      `SELECT COALESCE(SUM(cost_micros),0) AS cost_micros FROM metrics_daily
+        WHERE client_id = $1 AND date > CURRENT_DATE - 31`,
+      [clientId]
+    );
+    if (fromMicros(spend?.cost_micros) >= MIN_SPEND) {
+      out.push({
+        kind: "gtm_no_conversion_tag",
+        severity: "warning",
+        title: "No live Google Ads conversion tag in this container",
+        detail: `The account is spending but the container has no active Ads conversion tag. Conversions may be tracked another way — a global site tag, or imported from Analytics — but if they are not, nothing is being recorded.`,
+        evidence: { liveTagCount: live.length },
+      });
+    }
   }
 
   return out;

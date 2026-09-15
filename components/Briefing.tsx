@@ -574,18 +574,40 @@ function HourBars({ rows, money }: any) {
   const hours = Array.from({ length: 24 }, (_, h) => (byHour.get(h) ?? null) as SegRow | null);
   const max = Math.max(...hours.map((r) => r?.spend ?? 0), 1);
 
+  // Colour by cost per conversion relative to the day's average, not by whether
+  // an hour converted at all. The question is where conversions are expensive,
+  // not where a thin hour happened to record a zero.
+  const totalSpend = rows.reduce((n: number, r: SegRow) => n + r.spend, 0);
+  const totalConv = rows.reduce((n: number, r: SegRow) => n + r.conversions, 0);
+  const avgCpa = totalConv > 0 ? totalSpend / totalConv : null;
+
+  const tone = (r: SegRow | null): string => {
+    if (!r || r.spend === 0) return "";
+    if (avgCpa === null) return "";
+    // Too little traffic to judge — grey, not red.
+    if (r.clicks < 15) return " thin";
+    if (r.conversions === 0) return " bad";
+    const ratio = (r.spend / r.conversions) / avgCpa;
+    if (ratio >= 1.5) return " bad";
+    if (ratio >= 1.15) return " warm";
+    if (ratio <= 0.8) return " good";
+    return "";
+  };
+
   return (
     <>
       <div className="hours">
         {hours.map((r, h) => {
           const spend = r?.spend ?? 0;
-          const dead = r != null && r.conversions === 0 && spend > 0;
+          const cpa = r && r.conversions > 0 ? r.spend / r.conversions : null;
           return (
             <div key={h} className="hour" title={
-              r ? `${pad2(h)}:00 — ${money(spend)}, ${r.clicks} clicks, ${r.conversions.toFixed(0)} conversions` : `${pad2(h)}:00 — no spend`
+              r
+                ? `${pad2(h)}:00 — ${money(spend)}, ${r.clicks} clicks, ${r.conversions.toFixed(0)} conv${cpa !== null ? `, ${money(cpa, 2)} each` : ""}`
+                : `${pad2(h)}:00 — no spend`
             }>
               <div className="hour-track">
-                <div className={`hour-fill${dead ? " dead" : ""}`}
+                <div className={`hour-fill${tone(r)}`}
                      style={{ height: `${(spend / max) * 100}%` }} />
               </div>
               {h % 3 === 0 && <span className="hour-label">{pad2(h)}</span>}
@@ -593,12 +615,16 @@ function HourBars({ rows, money }: any) {
           );
         })}
       </div>
-      <p className="meta" style={{ marginTop: 10 }}>
-        Red bars took spend and produced no conversions across the whole 90 days.
-      </p>
+      <div className="row hour-key">
+        <span><i className="swatch-dot good" /> cheaper than average</span>
+        <span><i className="swatch-dot warm" /> above average</span>
+        <span><i className="swatch-dot bad" /> much more expensive, or nothing</span>
+        <span><i className="swatch-dot thin" /> too little traffic to judge</span>
+      </div>
     </>
   );
 }
+
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
 // -------------------------------------------------------------- keywords ---
@@ -694,39 +720,40 @@ function TagManager({ tags, connected }: { tags: any[]; connected: boolean }) {
     );
   }
 
-  const linker = tags.some((t) => t.type === "gclidw" && !t.paused);
-  const adsConv = tags.filter((t) => t.type === "awct");
-  const ga4 = tags.filter((t) => t.type === "gaawe" || t.type === "googtag");
-  const paused = tags.filter((t) => t.paused);
+  // Only live tags. A container collects paused ones — old experiments,
+  // replaced vendors — and listing them buries the thing that matters.
+  const live = tags.filter((t: any) => !t.paused);
+  const adsConv = live.filter((t: any) => t.type === "awct");
+  const linker = live.some((t: any) => t.type === "gclidw");
+  const ga4 = live.filter((t: any) => t.type === "gaawe" || t.type === "googtag");
 
   return (
     <section className="sheet sheet-pad">
       <div className="spread" style={{ marginBottom: 14 }}>
         <h2>Tag Manager</h2>
-        <span className="meta">{tags.length} tags in the live container</span>
+        <span className="meta">{live.length} live tags</span>
       </div>
       <ul className="access">
         <Check
           ok={adsConv.length > 0}
           label="Google Ads conversion tag"
-          detail={adsConv.length ? `${adsConv.length} present` : "None found — conversions cannot be recorded from this container"}
+          detail={adsConv.length
+            ? `${adsConv.length} live: ${adsConv.slice(0, 3).map((t: any) => t.name).join(", ")}`
+            : "None live. Conversions are either tracked elsewhere, or not at all"}
         />
         <Check
-          ok={linker}
+          ok={linker || adsConv.length === 0}
           label="Conversion Linker"
           detail={linker
-            ? "Present, so the click identifier is stored"
-            : "Missing. Without it conversions are attributed to nothing and under-report"}
+            ? "Live, so the click identifier is stored"
+            : adsConv.length === 0
+              ? "Not needed while no conversion tag is live"
+              : "Missing. Conversions cannot be attributed to the click that caused them"}
         />
         <Check
           ok={ga4.length > 0}
           label="Google tag / Analytics"
-          detail={ga4.length ? `${ga4.length} present` : "Not found in this container"}
-        />
-        <Check
-          ok={paused.length === 0}
-          label="No paused measurement tags"
-          detail={paused.length ? `${paused.length} paused: ${paused.slice(0,3).map((t:any)=>t.name).join(", ")}` : "Everything live"}
+          detail={ga4.length ? `${ga4.length} live` : "Not live in this container"}
         />
       </ul>
     </section>

@@ -833,3 +833,24 @@ td.dim { color: var(--faint); }
   .hours { height: 100px; gap: 2px; }
   .hour-label { display: none; }
 }
+
+/* Hour bars are coloured by cost per conversion against the day's average,
+   not by whether a thin hour happened to record a zero. */
+.hour-fill.good { background: var(--good); }
+.hour-fill.warm { background: var(--warn); }
+.hour-fill.bad  { background: var(--bad); }
+.hour-fill.thin { background: rgba(27, 36, 38, 0.22); }
+
+.hour-key {
+  gap: 16px; flex-wrap: wrap; margin-top: 12px;
+  font-size: 12px; color: var(--faint);
+}
+.hour-key span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch-dot {
+  width: 8px; height: 8px; border-radius: 2px; display: inline-block;
+  background: var(--ink);
+}
+.swatch-dot.good { background: var(--good); }
+.swatch-dot.warm { background: var(--warn); }
+.swatch-dot.bad  { background: var(--bad); }
+.swatch-dot.thin { background: rgba(27, 36, 38, 0.22); }

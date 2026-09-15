@@ -137,53 +137,112 @@ function deviceFindings(rows: SegmentRow[]): Finding[] {
 
 // ----------------------------------------------------------------- hour ----
 
+/**
+ * Find the time band that costs more, and say so as a comparison.
+ *
+ * A list of individual hours is not an insight — nobody acts on "03:00, 04:00
+ * and 22:00". What is actionable is "conversions cost 60% more between 06:00
+ * and 12:00", because that maps directly onto an ad schedule.
+ *
+ * Individual hours are also too thin to judge: an account doing 40 conversions
+ * a quarter has under two per hour. So the search is over contiguous *bands*,
+ * which pools enough volume for the comparison to mean anything.
+ */
 function hourFindings(rows: SegmentRow[]): Finding[] {
-  if (rows.length < 6) return [];
-  const total = rows.reduce((n, r) => n + r.spend, 0);
-  if (total < MIN_SEG_SPEND * 3) return [];
+  if (rows.length < 8) return [];
 
-  // Hours that take real money and return nothing, aggregated across 90 days —
-  // a single bad day proves nothing, a repeated pattern does.
-  const dead = rows.filter(
-    (r) => r.conversions === 0 && r.spend >= total * 0.02 && r.clicks >= 25
-  );
-  if (!dead.length) return [];
+  const byHour = new Map(rows.map((r) => [Number(r.key), r]));
+  const hours = Array.from({ length: 24 }, (_, h) => byHour.get(h) ?? null);
 
-  const wasted = dead.reduce((n, r) => n + r.spend, 0);
-  if (wasted < MIN_SEG_SPEND) return [];
+  const totalSpend = rows.reduce((n, r) => n + r.spend, 0);
+  const totalConv = rows.reduce((n, r) => n + r.conversions, 0);
+  const totalClicks = rows.reduce((n, r) => n + r.clicks, 0);
+  if (totalSpend < MIN_SEG_SPEND * 3 || totalClicks < MIN_SEG_CLICKS * 3) return [];
 
-  const blocks = groupHours(dead.map((d) => Number(d.key)));
+  type Band = {
+    start: number; end: number;          // end is exclusive
+    spend: number; clicks: number; conversions: number;
+    cpa: number | null;
+    restCpa: number | null;
+    excess: number;                       // money above what the rest would have cost
+  };
+
+  const bands: Band[] = [];
+  // Bands of 3 to 12 hours, wrapping past midnight — the quiet stretch usually
+  // straddles it, and a band that cannot wrap would never find it.
+  for (let len = 3; len <= 12; len++) {
+    for (let start = 0; start < 24; start++) {
+      let spend = 0, clicks = 0, conversions = 0;
+      for (let i = 0; i < len; i++) {
+        const r = hours[(start + i) % 24];
+        if (!r) continue;
+        spend += r.spend; clicks += r.clicks; conversions += r.conversions;
+      }
+      if (clicks < MIN_SEG_CLICKS || spend < MIN_SEG_SPEND) continue;
+
+      const restSpend = totalSpend - spend;
+      const restConv = totalConv - conversions;
+      const restClicks = totalClicks - clicks;
+      if (restClicks < MIN_SEG_CLICKS || restConv < 1) continue;
+
+      const cpa = conversions > 0 ? spend / conversions : null;
+      const restCpa = restConv > 0 ? restSpend / restConv : null;
+      if (restCpa === null) continue;
+
+      // What this band's traffic would have cost at the rest of the day's rate.
+      const excess = cpa === null ? spend : spend - conversions * restCpa;
+      bands.push({ start, end: (start + len) % 24, spend, clicks, conversions, cpa, restCpa, excess });
+    }
+  }
+
+  if (!bands.length) return [];
+
+  const worst = bands.reduce((a, b) => (b.excess > a.excess ? b : a));
+  if (worst.excess < MIN_SEG_SPEND) return [];
+
+  const label = `${pad(worst.start)}:00 and ${pad(worst.end)}:00`;
+  const shareOfSpend = (worst.spend / totalSpend) * 100;
+
+  // Never converted at all in this band.
+  if (worst.cpa === null) {
+    return [{
+      kind: "hours_bleeding",
+      severity: worst.spend > totalSpend * 0.15 ? "critical" : "warning",
+      title: `Nothing converts between ${label}`,
+      detail: `That band took ${worst.spend.toFixed(0)} across ${worst.clicks} clicks over 90 days and produced no conversions, while the rest of the day converts at ${worst.restCpa!.toFixed(2)}. It is ${shareOfSpend.toFixed(0)}% of spend. An ad schedule excluding those hours moves the money into hours that already work.`,
+      evidence: {
+        band: [worst.start, worst.end], spend: worst.spend, clicks: worst.clicks,
+        conversions: 0, restOfDayCpa: worst.restCpa, shareOfSpend,
+        hourly: hours.map((r, h) => ({
+          hour: h, spend: r?.spend ?? 0, clicks: r?.clicks ?? 0,
+          conversions: r?.conversions ?? 0, cpa: r?.cpa ?? null,
+        })),
+      },
+      moneyAtStake: worst.spend,
+    }];
+  }
+
+  const worsePct = ((worst.cpa - worst.restCpa!) / worst.restCpa!) * 100;
+  if (worsePct < 35) return [];
+
   return [{
-    kind: "hours_bleeding",
-    severity: wasted > total * 0.15 ? "critical" : "warning",
-    title: `${wasted.toFixed(0)} spent in hours that never convert`,
-    detail: `Across 90 days, ${blocks} took ${((wasted / total) * 100).toFixed(0)}% of spend and produced no conversions at all. An ad schedule that reduces or excludes those hours moves that money to hours that already work.`,
+    kind: "hours_expensive",
+    severity: worsePct > 100 ? "warning" : "info",
+    title: `Conversions cost ${worsePct.toFixed(0)}% more between ${label}`,
+    detail: `In that band a conversion costs ${worst.cpa.toFixed(2)} against ${worst.restCpa!.toFixed(2)} across the rest of the day, on ${shareOfSpend.toFixed(0)}% of spend. Roughly ${worst.excess.toFixed(0)} over 90 days is the premium for buying those hours at the same bid as every other hour — a negative bid adjustment on that window closes most of it.`,
     evidence: {
-      wasted, shareOfSpend: (wasted / total) * 100,
-      hours: dead.map((d) => ({
-        hour: Number(d.key), spend: d.spend, clicks: d.clicks,
-      })).sort((a, b) => a.hour - b.hour),
+      band: [worst.start, worst.end], cpa: worst.cpa, restOfDayCpa: worst.restCpa,
+      worseByPct: worsePct, spend: worst.spend, conversions: worst.conversions,
+      excessSpend: worst.excess, shareOfSpend,
+      hourly: hours.map((r, h) => ({
+        hour: h, spend: r?.spend ?? 0, clicks: r?.clicks ?? 0,
+        conversions: r?.conversions ?? 0, cpa: r?.cpa ?? null,
+      })),
     },
-    moneyAtStake: wasted,
+    moneyAtStake: worst.excess,
   }];
 }
 
-/** "02:00–05:00 and 23:00" reads better than a list of numbers. */
-function groupHours(hours: number[]): string {
-  const sorted = [...hours].sort((a, b) => a - b);
-  const runs: number[][] = [];
-  for (const h of sorted) {
-    const last = runs[runs.length - 1];
-    if (last && h === last[last.length - 1] + 1) last.push(h);
-    else runs.push([h]);
-  }
-  const parts = runs.map((r) =>
-    r.length === 1 ? `${pad(r[0])}:00` : `${pad(r[0])}:00–${pad(r[r.length - 1] + 1)}:00`
-  );
-  return parts.length === 1
-    ? parts[0]
-    : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-}
 const pad = (n: number) => String(n).padStart(2, "0");
 
 // ------------------------------------------------------------------ dow ----
