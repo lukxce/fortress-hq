@@ -26,8 +26,24 @@ export function redirectUri(): string {
   return `${base.replace(/\/+$/, "")}/api/auth/google/callback`;
 }
 
+/**
+ * Credentials, whitespace-stripped.
+ *
+ * Pasting a value into a hosting dashboard very easily carries a trailing
+ * newline, and Google then reports "OAuth client was not found" — an error that
+ * points at the client rather than at the invisible character actually causing
+ * it. Nothing legitimate in these values has surrounding whitespace, so strip it.
+ */
+function clientId(): string | undefined {
+  return process.env.GOOGLE_CLIENT_ID?.trim() || undefined;
+}
+
+function clientSecret(): string | undefined {
+  return process.env.GOOGLE_CLIENT_SECRET?.trim() || undefined;
+}
+
 export function oauthConfigured(): boolean {
-  return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  return Boolean(clientId() && clientSecret());
 }
 
 function baseClient(): OAuth2Client {
@@ -37,8 +53,8 @@ function baseClient(): OAuth2Client {
     );
   }
   return new OAuth2Client({
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    clientId: clientId(),
+    clientSecret: clientSecret(),
     redirectUri: redirectUri(),
   });
 }
@@ -69,7 +85,7 @@ export async function completeAuth(code: string): Promise<number> {
   if (tokens.id_token) {
     const ticket = await client.verifyIdToken({
       idToken: tokens.id_token,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: clientId(),
     });
     email = ticket.getPayload()?.email ?? null;
   }

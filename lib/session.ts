@@ -19,7 +19,7 @@ const MAX_AGE_DAYS = 30;
 
 function secret(): string {
   // Reuses the encryption key rather than inventing a second secret to lose.
-  const k = process.env.ENCRYPTION_KEY;
+  const k = process.env.ENCRYPTION_KEY?.trim();
   if (!k) throw new Error("ENCRYPTION_KEY is not set");
   return k;
 }
@@ -64,7 +64,7 @@ export async function verifyToken(token: string | undefined): Promise<boolean> {
 }
 
 export async function checkPassword(given: string): Promise<boolean> {
-  const expected = process.env.APP_PASSWORD;
+  const expected = process.env.APP_PASSWORD?.trim();
   if (!expected) return false;
   // Hash both sides so the comparison length never leaks the real length.
   return safeEqual(await hmac(`pw:${given}`), await hmac(`pw:${expected}`));
@@ -72,7 +72,8 @@ export async function checkPassword(given: string): Promise<boolean> {
 
 /** True when no password is configured — the app then refuses to serve. */
 export function passwordConfigured(): boolean {
-  return Boolean(process.env.APP_PASSWORD && process.env.APP_PASSWORD.length >= 8);
+  const pw = process.env.APP_PASSWORD?.trim();
+  return Boolean(pw && pw.length >= 8);
 }
 
 export const SESSION_COOKIE = COOKIE;

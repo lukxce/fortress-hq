@@ -11,7 +11,7 @@ declare global {
 
 function pool(): Pool {
   if (!globalThis.__fortressPool) {
-    const connectionString = process.env.DATABASE_URL;
+    const connectionString = process.env.DATABASE_URL?.trim();
     if (!connectionString) {
       throw new Error(
         "DATABASE_URL is not set. Copy .env.example to .env.local and add your Vercel Postgres connection string."

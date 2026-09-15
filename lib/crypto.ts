@@ -5,7 +5,8 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 const ALGO = "aes-256-gcm";
 
 function key(): Buffer {
-  const hex = process.env.ENCRYPTION_KEY;
+  // A trailing newline from a pasted value would make this fail length validation.
+  const hex = process.env.ENCRYPTION_KEY?.trim();
   if (!hex) {
     throw new Error(
       "ENCRYPTION_KEY is not set. Generate one with: openssl rand -hex 32"
