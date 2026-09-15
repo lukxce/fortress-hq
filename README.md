@@ -18,7 +18,7 @@ Deployed at **fortress-hq.com**.
 ## Environment
 
 See `.env.example`. Five variables in production: `DATABASE_URL`,
-`ENCRYPTION_KEY`, `APP_PASSWORD`, `NEXT_PUBLIC_APP_URL`, and the Google
+`ENCRYPTION_KEY`, `APP_PASSWORD`, `APP_URL`, and the Google
 client pair.
 
 `ENCRYPTION_KEY` encrypts the Google refresh token at rest. Changing it makes

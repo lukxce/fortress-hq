@@ -15,9 +15,13 @@ export type Connection = {
 };
 
 export function redirectUri(): string {
+  // Server-side only, deliberately not NEXT_PUBLIC_: nothing in the browser
+  // needs it, and a plain server variable is read at runtime rather than baked
+  // in at build time.
+  //
   // ?? only catches undefined, and an env var declared-but-empty is "" — which
   // silently produced a redirect URI with no origin at all.
-  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  const configured = process.env.APP_URL?.trim();
   const base = configured || "http://localhost:3020";
   return `${base.replace(/\/+$/, "")}/api/auth/google/callback`;
 }

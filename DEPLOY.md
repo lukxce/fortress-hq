@@ -32,7 +32,7 @@ Project → Settings → Environment Variables. All five, for Production:
 | `DATABASE_URL` | the `POSTGRES_URL` from step 1 |
 | `ENCRYPTION_KEY` | 64 hex characters — `openssl rand -hex 32` |
 | `APP_PASSWORD` | your own, at least 8 characters |
-| `NEXT_PUBLIC_APP_URL` | your deployed origin, no trailing slash |
+| `APP_URL` | your deployed origin, no trailing slash |
 | `GOOGLE_CLIENT_ID` | from step 4 |
 | `GOOGLE_CLIENT_SECRET` | from step 4 |
 
@@ -59,7 +59,7 @@ https://<your-app>.vercel.app/api/auth/google/callback
 ```
 
 If you later put a custom domain on it, add that URI too and update
-`NEXT_PUBLIC_APP_URL`. Google matches redirect URIs literally — a missing `www`
+`APP_URL`. Google matches redirect URIs literally — a missing `www`
 or a trailing slash fails with `redirect_uri_mismatch`.
 
 Paste the id and secret into Vercel, then redeploy so the new variables are
