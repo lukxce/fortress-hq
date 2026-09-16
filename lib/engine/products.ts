@@ -340,8 +340,47 @@ export async function tagManager(clientId: number): Promise<Finding[]> {
   return out;
 }
 
+/** From the last check of the live site: tags that should be there and are not. */
+export async function siteTags(clientId: number): Promise<Finding[]> {
+  const [row] = await q<Row>(`SELECT result, checked_at FROM tag_checks WHERE client_id = $1 AND checked_at > now() - interval '8 days'`, [clientId]);
+  const c = row?.result;
+  if (!c?.website || !c.pages?.some((p: Row) => p.ok)) return [];
+  const out: Finding[] = [];
+  const add = (kind: string, severity: Finding["severity"], title: string, detail: string, evidence: Record<string, unknown>) =>
+    out.push({ kind, product: "tag_manager", area: "tracking", severity, title, detail, evidence });
+
+  if (c.tagManager?.id && !c.tagManager.where.directOnPages.length) {
+    add("site_gtm_container_missing", "critical", `The Tag Manager container ${c.tagManager.id} is not on the website`,
+      `None of the ${c.pages.filter((p: Row) => p.ok).length} pages checked loads it, so every tag inside it — conversion tags included — does not run there. Either the site loads a different container${c.otherIdsOnSite?.some((o: Row) => o.id.startsWith("GTM-")) ? ` (${c.otherIdsOnSite.filter((o: Row) => o.id.startsWith("GTM-")).map((o: Row) => o.id).join(", ")} is on the site)` : ""}, or the snippet was removed.`,
+      { container: c.tagManager.id, pages: c.pages });
+  }
+  for (const [key, label] of [["ads", "Google Ads"], ["analytics", "Analytics"]] as const) {
+    const t = c[key];
+    if (!t?.id) continue;
+    if (t.status === "configured_not_live") {
+      add(`site_${key}_tag_not_live`, "critical", `The ${label} tag ${t.id} is set up in Tag Manager but not live on the site`,
+        `It is configured in the connected container, but the container the website actually loads does not include it. Publish the container, or check that the site uses the same container.`, { id: t.id, where: t.where });
+    } else if (t.status === "not_found") {
+      add(`site_${key}_tag_missing`, "critical", `The ${label} tag ${t.id} is not on the website`,
+        `It is not in the page code of the pages checked, nor in any Tag Manager container the site loads, and ${key === "ads" ? "no conversion has arrived in the last two weeks" : "Analytics has recorded no sessions in the last three days"}. Nothing is being measured for it.`, { id: t.id });
+    }
+  }
+  const missing = (c.ads?.actions ?? []).filter((a: Row) => a.primary && a.label && !a.found && !a.lastReceived);
+  if (missing.length) {
+    add("site_conversion_labels_missing", "warning", `${missing.length} primary conversion action${missing.length === 1 ? " has" : "s have"} no tag on the site`,
+      `${missing.slice(0, 3).map((a: Row) => `"${a.name}"`).join(", ")} ${missing.length === 1 ? "counts" : "count"} toward bidding, but ${missing.length === 1 ? "its" : "their"} conversion label is neither on the pages checked nor in the live container, and nothing has been recorded. Smart Bidding is optimising towards an action that cannot fire.`,
+      { actions: missing });
+  }
+  if (c.otherIdsOnSite?.length) {
+    add("site_unknown_google_ids", "info", `${c.otherIdsOnSite.length} other Google ID${c.otherIdsOnSite.length === 1 ? "" : "s"} on the website`,
+      `${c.otherIdsOnSite.map((o: Row) => `${o.id} (${o.kind})`).join(", ")}. Not connected to this project — an old install, someone else's tag, or tracking that sends data somewhere nobody is reading.`,
+      { ids: c.otherIdsOnSite });
+  }
+  return out;
+}
+
 export async function productFindings(clientId: number): Promise<Finding[]> {
-  const groups = await Promise.all([analytics(clientId), searchConsole(clientId), tagManager(clientId)]
+  const groups = await Promise.all([analytics(clientId), searchConsole(clientId), tagManager(clientId), siteTags(clientId)]
     .map((p) => p.catch((err) => { console.error("[product findings]", (err as Error).message); return [] as Finding[]; })));
   return groups.flat();
 }
