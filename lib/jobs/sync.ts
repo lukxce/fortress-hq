@@ -251,24 +251,30 @@ async function syncSearchTerms(auth: OAuth2Client, c: ClientWithProps): Promise<
   } catch { /* an account with no standard search campaigns has no view */ }
 
   try {
+    // campaign_search_term_view, NOT campaign_search_term_insight. The insight
+    // resource returns grouped category labels with no cost at all; this one
+    // returns the actual search term WITH cost_micros, which is the difference
+    // between "some category spent money" and a waste analysis.
+    //
+    // Hard constraint: adding any segments.keyword.* field to this query makes
+    // Google silently drop every Performance Max row, with no error.
     const pmax = await searchStream(auth, cid, `
-      SELECT campaign_search_term_insight.category_label, campaign.id,
-             metrics.impressions, metrics.clicks, metrics.conversions
-        FROM campaign_search_term_insight
+      SELECT campaign_search_term_view.search_term, campaign.id,
+             segments.search_term_match_source,
+             metrics.impressions, metrics.clicks, metrics.cost_micros,
+             metrics.conversions
+        FROM campaign_search_term_view
        WHERE segments.date BETWEEN '${isoDaysAgo(SEARCH_TERM_DAYS)}' AND '${isoDaysAgo(0)}'
     `);
-    // Search term insights are grouped into categories rather than raw queries,
-    // and carry no cost. That is Google's deliberate opacity for PMax, not a
-    // gap in the sync — record what is available and let the analysis say so.
     for (const r of pmax) {
       rows.push({
-        searchTermView: { searchTerm: r.campaignSearchTermInsight?.categoryLabel ?? "" },
+        searchTermView: { searchTerm: r.campaignSearchTermView?.searchTerm ?? "" },
         campaign: r.campaign,
-        segments: { searchTermMatchSource: "PMAX_CATEGORY" },
-        metrics: { ...(r.metrics ?? {}), costMicros: "0" },
+        segments: r.segments,
+        metrics: r.metrics,
       });
     }
-  } catch { /* insights are unavailable on some accounts */ }
+  } catch { /* the view is unavailable on accounts with no PMax campaigns */ }
 
   await tx(async (run) => {
     // Rows arrive segmented; collapse to one row per term per campaign.

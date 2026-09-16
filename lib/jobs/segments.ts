@@ -330,13 +330,17 @@ export async function syncPlacements(
   // Performance Max serves the same inventory but reports it through a
   // different resource. Without this, a PMax-dominant account returns zero
   // placements and reads as "no display spend" when the opposite is true.
+  // Impressions is the ONLY metric this view carries — no clicks, no cost, no
+  // conversions. Requesting anything else fails the query outright. That
+  // asymmetry is itself worth reporting: you can see where Performance Max
+  // showed your ads, and you can never see what it cost you.
   sources.push(["pmax", `
     SELECT campaign.id,
            performance_max_placement_view.placement,
            performance_max_placement_view.display_name,
            performance_max_placement_view.placement_type,
            performance_max_placement_view.target_url,
-           metrics.impressions, metrics.clicks
+           metrics.impressions
       FROM performance_max_placement_view
      WHERE ${range()}`]);
 
