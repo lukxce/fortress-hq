@@ -63,7 +63,12 @@ function baseClient(): OAuth2Client {
 export function authUrl(state: string): string {
   return baseClient().generateAuthUrl({
     access_type: "offline",
-    prompt: "consent",
+    // Both matter, and for different reasons. "consent" forces the consent
+    // screen, which is what makes Google return a refresh token rather than
+    // only an access token. "select_account" forces the account chooser —
+    // without it, anyone already signed in to one Google account is taken
+    // straight into it, with no way to authorise a different one.
+    prompt: "select_account consent",
     include_granted_scopes: true,
     scope: [...SCOPES],
     state,
