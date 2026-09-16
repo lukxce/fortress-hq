@@ -854,3 +854,16 @@ td.dim { color: var(--faint); }
 .swatch-dot.warm { background: var(--warn); }
 .swatch-dot.bad  { background: var(--bad); }
 .swatch-dot.thin { background: rgba(27, 36, 38, 0.22); }
+
+/* --- conversion goal composer --------------------------------------------- */
+
+.snippet {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; line-height: 1.55;
+  background: rgba(27, 36, 38, 0.045);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: 13px 15px; margin: 6px 0 0;
+  white-space: pre-wrap; word-break: break-all;
+  max-height: 240px; overflow: auto;
+}

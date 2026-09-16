@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { cookies } from "next/headers";
 import {
   checkPassword, issueToken, passwordConfigured, sessionCookieDomain,
   SESSION_COOKIE, SESSION_MAX_AGE,
@@ -37,31 +36,47 @@ export async function POST(req: NextRequest) {
   }
 
   attempts.delete(ip);
-  const jar = await cookies();
-  jar.set(SESSION_COOKIE, await issueToken(), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: SESSION_MAX_AGE,
-    // Covers the apex and www together; without it the cookie is host-only and
-    // moving between them logs you out.
-    domain: sessionCookieDomain(),
-  });
 
-  return NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true });
+
+  // Before the session cookie carried a Domain it was host-only. Anyone who
+  // signed in during that window still has that cookie, and the browser sends
+  // BOTH — so a fresh sign-in can still be read as the stale one and the user
+  // bounces straight back to the password box. Expiring the host-only variant
+  // costs nothing and makes that state unrecoverable by accident.
+  //
+  // Both cookies are written onto this response directly rather than through
+  // the cookies() jar: two cookies of the same name cannot be expressed in one
+  // jar entry, and mixing the jar with a hand-built response is ambiguous.
+  const secure = process.env.NODE_ENV === "production";
+  res.headers.append(
+    "set-cookie",
+    `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`
+  );
+
+  const domain = sessionCookieDomain();
+  res.headers.append(
+    "set-cookie",
+    `${SESSION_COOKIE}=${await issueToken()}; Path=/; Max-Age=${SESSION_MAX_AGE}` +
+      `; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}${domain ? `; Domain=${domain}` : ""}`
+  );
+
+  return res;
 }
 
 export async function DELETE() {
-  const jar = await cookies();
-  // Must match the attributes it was set with, or the browser keeps it.
-  jar.set(SESSION_COOKIE, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 0,
-    domain: sessionCookieDomain(),
-  });
-  return NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true });
+  const secure = process.env.NODE_ENV === "production";
+  const domain = sessionCookieDomain();
+  // Clear both shapes: a cookie is only removed by a Set-Cookie whose Domain
+  // matches the one it was stored under, so signing out has to cover the
+  // host-only variant as well as the current domain-wide one.
+  for (const d of [undefined, domain]) {
+    res.headers.append(
+      "set-cookie",
+      `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax` +
+        `${secure ? "; Secure" : ""}${d ? `; Domain=${d}` : ""}`
+    );
+  }
+  return res;
 }

@@ -168,6 +168,29 @@ export async function activeConnection(): Promise<Connection | null> {
   );
 }
 
+/**
+ * The connection that owns a given client's data.
+ *
+ * Every inventory row remembers which authorisation discovered it, so a client
+ * resolves to a credential through its own bindings rather than through
+ * whatever was authorised most recently. Without this, connecting a second
+ * Google account silently repoints every existing client at it — the sync
+ * would run, and quietly read the wrong account or none at all.
+ */
+export async function connectionForClient(clientId: number): Promise<Connection | null> {
+  const own = await q1<Connection>(
+    `SELECT c.* FROM connections c
+       JOIN inventory i ON i.connection_id = c.id
+       JOIN client_properties cp ON cp.inventory_id = i.id
+      WHERE cp.client_id = $1 AND c.status = 'active' AND c.refresh_token_enc IS NOT NULL
+      ORDER BY (i.provider = 'ads') DESC, c.id
+      LIMIT 1`,
+    [clientId]
+  );
+  // A client with no bindings yet (mid-setup) still has to come from somewhere.
+  return own ?? activeConnection();
+}
+
 export async function allConnections(): Promise<Connection[]> {
   return q<Connection>("SELECT * FROM connections ORDER BY id");
 }

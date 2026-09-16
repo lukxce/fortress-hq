@@ -194,3 +194,30 @@ export async function guessDomain(
     return null;   // an account we can list but not read is not fatal
   }
 }
+
+/**
+ * A write against one of the mutate services.
+ *
+ * Same envelope as searchStream — REST, lowerCamelCase JSON, int64 as strings.
+ * `MUTABLE_RESOURCE` asks Google to return the created object rather than only
+ * its resource name, which saves a round trip for every field except
+ * tag_snippets: those are generated after the fact and only ever appear on a
+ * read.
+ *
+ * Mutates are not idempotent and there is no request key here, so a caller that
+ * retries on timeout can create the same object twice. Check before you create.
+ */
+export async function mutate(
+  client: OAuth2Client,
+  customerId: string,
+  service: string,
+  operations: unknown[],
+  loginCustomerId?: string
+): Promise<{ resourceName?: string; [k: string]: unknown }[]> {
+  const out = (await call(client, `customers/${digits(customerId)}/${service}:mutate`, {
+    method: "POST",
+    loginCustomerId,
+    body: { operations, responseContentType: "MUTABLE_RESOURCE" },
+  })) as { results?: { resourceName?: string }[] } | null;
+  return out?.results ?? [];
+}

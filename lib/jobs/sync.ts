@@ -1,7 +1,7 @@
 import { google } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
 import { q, tx } from "@/lib/db";
-import { activeConnection, clientFor } from "@/lib/google/auth";
+import { connectionForClient, clientFor } from "@/lib/google/auth";
 import { searchStream, digits } from "@/lib/google/ads";
 import { countOps } from "@/lib/google/quota";
 import { clientWithProperties, type ClientWithProps } from "@/lib/binding";
@@ -33,7 +33,7 @@ const isoDaysAgo = (n: number) =>
   new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
 
 export async function syncClient(clientId: number): Promise<SyncReport> {
-  const conn = await activeConnection();
+  const conn = await connectionForClient(clientId);
   if (!conn) throw new Error("No active Google connection.");
   const auth = await clientFor(conn.id);
 
