@@ -39,7 +39,7 @@ export function Bindings({ clientId, slots }: { clientId: number; slots: Slot[] 
           </div>
           <select style={{ width: 320, maxWidth: "100%" }} disabled={busy === s.provider}
             value={s.current ?? ""} onChange={(e) => change(s, e.target.value)} aria-label={s.label}>
-            {s.provider !== "ads" && <option value="">Not connected</option>}
+            <option value="">Not connected</option>
             {s.current != null && !s.options.some((o) => o.id === s.current) && <option value={s.current}>Connected through another person&rsquo;s Google</option>}
             {s.options.map((o) => <option key={o.id} value={o.id}>{o.label}{o.sub ? ` — ${o.sub}` : ""}</option>)}
           </select>

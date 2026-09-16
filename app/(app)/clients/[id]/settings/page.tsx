@@ -7,6 +7,8 @@ import { ago, count } from "@/lib/format";
 import { ClientSettings } from "@/components/brain/ClientSettings";
 import { Bindings } from "@/components/settings/Bindings";
 import { IndustrySelect } from "@/components/settings/Industry";
+import { DeleteProject } from "@/components/settings/DeleteProject";
+import { isAdmin } from "@/lib/user";
 import { INDUSTRIES } from "@/lib/learning/industry";
 import { q1 } from "@/lib/db";
 
@@ -122,6 +124,12 @@ export default async function ProjectSettings({ params }: { params: Promise<{ id
           </table>
         </div>
       </div>
+      {(!me || isAdmin(me) || client.owner_id === me.id) && (
+        <div className="card card-pad" style={{ borderColor: "var(--bad-wash)" }}>
+          <h2 style={{ marginBottom: 8 }}>Delete project</h2>
+          <DeleteProject clientId={id} name={client.name} />
+        </div>
+      )}
     </div>
   );
 }

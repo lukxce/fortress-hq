@@ -45,7 +45,10 @@ export default async function Connect({
   const me = await currentUser();
   const rows = await q<InventoryRow>(`
     SELECT id, provider, provider_id, display_name, domain, parent_id, parent_name,
-           is_manager, currency, timezone, status, extra
+           is_manager, currency, timezone, status, extra,
+           COALESCE((SELECT json_agg(json_build_object('id', c.id, 'name', c.name) ORDER BY c.name)
+                       FROM client_properties cp JOIN clients c ON c.id = cp.client_id
+                      WHERE cp.inventory_id = inventory.id AND NOT c.archived), '[]') AS projects
       FROM inventory
      WHERE status <> 'revoked' AND ${visibleConnections(me?.id ?? null, 1)}
      ORDER BY provider, is_manager DESC, display_name
@@ -58,7 +61,7 @@ export default async function Connect({
           <div>
             <h1>Connect</h1>
             <p className="lede">
-              Signed in as {setup.email ?? "your Google account"}. Tick what you want to import.
+              Signed in as {setup.email ?? "your Google account"}. Connect what you want Fortress to read, and disconnect anything to stop pulling its data.
             </p>
           </div>
         </div>
