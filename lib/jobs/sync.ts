@@ -104,6 +104,10 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
            campaign.maximize_conversion_value.target_roas,
            campaign.primary_status,
            campaign.primary_status_reasons,
+           campaign.bidding_strategy_system_status,
+           metrics.average_target_cpa_micros,
+           metrics.average_target_roas,
+           campaign_budget.recommended_budget_amount_micros,
            campaign.start_date_time,
            campaign.end_date_time,
            campaign_budget.amount_micros,
@@ -127,8 +131,9 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
         `INSERT INTO campaigns (client_id, ads_customer_id, campaign_id, name, status,
             channel_type, bidding_strategy, target_cpa_micros, target_roas,
             budget_micros, budget_shared, primary_status, primary_status_reasons,
-            start_date, end_date, last_synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now())
+            start_date, end_date, bid_strategy_status, avg_target_cpa_micros,
+            avg_target_roas, recommended_budget_micros, last_synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19, now())
          ON CONFLICT (ads_customer_id, campaign_id) DO UPDATE SET
            client_id = EXCLUDED.client_id, name = EXCLUDED.name,
            status = EXCLUDED.status, channel_type = EXCLUDED.channel_type,
@@ -140,6 +145,10 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
            primary_status = EXCLUDED.primary_status,
            primary_status_reasons = EXCLUDED.primary_status_reasons,
            start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date,
+           bid_strategy_status = EXCLUDED.bid_strategy_status,
+           avg_target_cpa_micros = EXCLUDED.avg_target_cpa_micros,
+           avg_target_roas = EXCLUDED.avg_target_roas,
+           recommended_budget_micros = EXCLUDED.recommended_budget_micros,
            last_synced_at = now()`,
         [
           c.id, cid, String(camp.id), camp.name ?? "", camp.status ?? null,
@@ -152,6 +161,10 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
           camp.primaryStatusReasons ?? [],
           camp.startDateTime ? camp.startDateTime.slice(0, 10) : null,
           camp.endDateTime ? camp.endDateTime.slice(0, 10) : null,
+          camp.biddingStrategySystemStatus ?? null,
+          r.metrics?.averageTargetCpaMicros ? String(r.metrics.averageTargetCpaMicros) : null,
+          r.metrics?.averageTargetRoas ?? null,
+          budget.recommendedBudgetAmountMicros ? String(budget.recommendedBudgetAmountMicros) : null,
         ]
       );
     }
@@ -167,7 +180,8 @@ async function syncMetrics(auth: OAuth2Client, c: ClientWithProps): Promise<numb
   const rows = await searchStream(auth, cid, `
     SELECT campaign.id, segments.date,
            metrics.impressions, metrics.clicks, metrics.cost_micros,
-           metrics.conversions, metrics.conversions_value
+           metrics.conversions, metrics.conversions_value,
+           metrics.original_conversion_value
       FROM campaign
      WHERE segments.date BETWEEN '${isoDaysAgo(METRICS_DAYS)}' AND '${isoDaysAgo(0)}'
   `);
@@ -182,18 +196,21 @@ async function writeMetrics(c: ClientWithProps, cid: string, rows: any[]) {
       const m = r.metrics ?? {};
       await run(
         `INSERT INTO metrics_daily (entity_type, entity_id, client_id, date,
-            impressions, clicks, cost_micros, conversions, conversion_value_micros)
-         VALUES ('campaign',$1,$2,$3,$4,$5,$6,$7,$8)
+            impressions, clicks, cost_micros, conversions, conversion_value_micros,
+            original_conversion_value_micros)
+         VALUES ('campaign',$1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (entity_type, entity_id, date) DO UPDATE SET
            client_id = EXCLUDED.client_id,
            impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks,
            cost_micros = EXCLUDED.cost_micros, conversions = EXCLUDED.conversions,
-           conversion_value_micros = EXCLUDED.conversion_value_micros`,
+           conversion_value_micros = EXCLUDED.conversion_value_micros,
+           original_conversion_value_micros = EXCLUDED.original_conversion_value_micros`,
         [
           String(r.campaign?.id), c.id, r.segments?.date,
           String(m.impressions ?? 0), String(m.clicks ?? 0), String(m.costMicros ?? 0),
           numeric(m.conversions),
           String(Math.round(numeric(m.conversionsValue) * 1e6)),
+          String(Math.round(numeric(m.originalConversionValue) * 1e6)),
         ]
       );
     }
@@ -255,7 +272,9 @@ async function syncConversionActions(auth: OAuth2Client, c: ClientWithProps): Pr
            conversion_action.counting_type,
            conversion_action.include_in_conversions_metric,
            conversion_action.click_through_lookback_window_days,
-           conversion_action.view_through_lookback_window_days
+           conversion_action.view_through_lookback_window_days,
+           conversion_action.value_settings.always_use_default_value,
+           conversion_action.value_settings.default_value
       FROM conversion_action
      WHERE conversion_action.status != 'REMOVED'
   `);
@@ -282,8 +301,9 @@ async function syncConversionActions(auth: OAuth2Client, c: ClientWithProps): Pr
       await run(
         `INSERT INTO conversion_actions (client_id, ads_customer_id, action_id, name,
             category, type, status, counting_type, include_in_conversions,
-            click_window_days, view_window_days, conversions_30d, synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())
+            click_window_days, view_window_days, conversions_30d,
+            always_use_default_value, default_value, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now())
          ON CONFLICT (ads_customer_id, action_id) DO UPDATE SET
            client_id = EXCLUDED.client_id, name = EXCLUDED.name,
            category = EXCLUDED.category, type = EXCLUDED.type, status = EXCLUDED.status,
@@ -291,13 +311,17 @@ async function syncConversionActions(auth: OAuth2Client, c: ClientWithProps): Pr
            include_in_conversions = EXCLUDED.include_in_conversions,
            click_window_days = EXCLUDED.click_window_days,
            view_window_days = EXCLUDED.view_window_days,
-           conversions_30d = EXCLUDED.conversions_30d, synced_at = now()`,
+           conversions_30d = EXCLUDED.conversions_30d,
+           always_use_default_value = EXCLUDED.always_use_default_value,
+           default_value = EXCLUDED.default_value, synced_at = now()`,
         [c.id, cid, String(a.id), a.name ?? "", a.category ?? null, a.type ?? null,
          a.status ?? null, a.countingType ?? null,
          a.includeInConversionsMetric ?? null,
          a.clickThroughLookbackWindowDays ?? null,
          a.viewThroughLookbackWindowDays ?? null,
-         volume.get(String(a.id)) ?? 0]
+         volume.get(String(a.id)) ?? 0,
+         a.valueSettings?.alwaysUseDefaultValue ?? null,
+         a.valueSettings?.defaultValue ?? null]
       );
     }
   });

@@ -6,7 +6,8 @@ import { computeFindings, storeFindings } from "@/lib/engine/findings";
 import { segment, keywordSplit } from "@/lib/engine/segments";
 import { monthlyShape } from "@/lib/engine/forensics";
 import { OPERATING_CONTEXT } from "./knowledge/context";
-import { MECHANICS } from "./knowledge/mechanics";
+import { MECHANICS, REPORTING } from "./knowledge/mechanics";
+import { BENCHMARKS } from "./knowledge/benchmarks";
 import { DIAGNOSTICS, WRITING } from "./knowledge/diagnostics";
 
 // Claude Opus 5. Pinned deliberately: the analysis quality of this app must not
@@ -246,7 +247,7 @@ export async function analyseClient(clientId: number): Promise<{
     system: [
       {
         type: "text" as const,
-        text: [OPERATING_CONTEXT, MECHANICS, DIAGNOSTICS, WRITING, SYSTEM].join("\n\n"),
+        text: [OPERATING_CONTEXT, MECHANICS, REPORTING, BENCHMARKS, DIAGNOSTICS, WRITING, SYSTEM].join("\n\n"),
         cache_control: { type: "ephemeral" as const },
       },
     ],

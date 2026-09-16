@@ -127,3 +127,128 @@ for far longer.
 This is why cheap junk traffic matters far more than its cost suggests, and why
 detection speed matters more than cleanup thoroughness.
 `;
+
+/**
+ * Reporting and measurement mechanics — the traps that make a number mean
+ * something other than what it appears to mean. Separated from bidding because
+ * these apply to every figure on the page, not just the bid strategy.
+ */
+export const REPORTING = `
+## What the numbers actually are
+
+### Conversions are dated to the click, not the conversion
+
+A conversion that happens today is written back onto the date of the click that
+caused it, up to 90 days earlier. Three consequences:
+
+- **Recent days always look artificially bad**, and keep filling in for weeks.
+  Never diagnose a fall in the last few days as performance.
+- The default columns are correct for judging efficiency, because spend and
+  conversions then share a date.
+- Reconciling to Analytics or a finance system needs the by-conversion-time
+  columns instead. Mixing the two in one comparison manufactures a discrepancy.
+
+### Targets do not reset learning, whatever you have read
+
+Google is explicit: changing a target "won't trigger a 'learning' status, and
+won't reset anything Smart Bidding has already learned", and advertisers should
+"feel comfortable changing CPA and ROAS targets as frequently as you would
+like". There is no learning status for a target change in the API at all.
+
+Note this is **contested in practice** — serious tooling ships a two-week
+cooldown between target changes anyway. The defensible position is that targets
+can move without fear of a reset, but that moving them more than once or twice a
+month means you never observe the result of the last move.
+
+What does restart learning: a new or reactivated campaign, a bid-strategy
+change, a budget change, a structural change, and a conversion-setting change.
+
+Learning length is not measured in days. Google's own figure is roughly 50
+conversion events or three conversion cycles. On an account doing 20 conversions
+a month that is months, not weeks — which is itself a finding worth stating.
+
+### Two different conversion-volume floors get conflated
+
+Fifteen conversions in thirty days is what Google requires to *permit* target
+return-on-ad-spend bidding on Search and Shopping. Roughly fifty in thirty days
+is what practitioners find necessary for the result to be *trustworthy*. These
+are different quantities and the gap between them is where most bad advice
+lives.
+
+Below thirty conversions a month, measured target attainment on Performance Max
+swings between −100% and +400% of target. Above thirty it lands within about
+15%. So thirty a month is the floor below which any judgement about whether a
+target is being met is noise.
+
+**Gate every target-related conclusion on conversion volume.** Below the floor,
+the correct finding is "there is not enough data to judge this", not a verdict.
+
+### Value bidding on uniform values is count bidding wearing a costume
+
+If every conversion carries the same value, maximising conversion value is
+algebraically identical to maximising conversion count, and a target return is
+exactly a target cost per conversion divided by that value. Google's own
+requirement for value bidding is at least two genuinely different values.
+
+So an account running target return-on-ad-spend where every conversion has the
+same value is not doing value bidding. It is doing cost-per-conversion bidding
+with extra moving parts and a misleading column. Worth saying plainly.
+
+### Impression share is censored at both ends
+
+Share metrics are reported in the range 0.1 to 1: **anything below 10% is
+reported as 0.0999**. Lost-share metrics run 0 to 0.9: **anything above 90% is
+reported as 0.9001**. You cannot tell 2% impression share from 9.9%, and a
+campaign collapsing from 9% to 1% shows no change at all.
+
+Treat those two values as "unknown", never as measurements, and never average or
+trend across them. The three shares also do not sum to 100%, and Google never
+claims they do.
+
+Two more traps. Lost impression share to rank is **suppressed entirely if the
+budget ran out** during the period, so its absence on a budget-capped campaign
+is evidence of a budget problem rather than missing data. And raising a target
+can *enlarge* the pool of auctions you are eligible for, lowering measured
+impression share while absolute impressions rise — it is not a fixed-denominator
+ratio.
+
+### Performance Max quietly eats Search's impression share
+
+When Performance Max serves instead of a Search campaign, the Search campaign is
+not eligible for that auction at all. Those auctions leave the denominator
+rather than counting as lost. A Search campaign can therefore show **fewer
+impressions and a higher impression share at the same time**. Any comparison
+spanning a Performance Max launch is invalid.
+
+### Quality Score is a diagnostic, not an auction input
+
+Google states it plainly: Quality Score "is not a key performance indicator and
+should not be optimized", and "is not an input in the ad auction". The visible
+1–10 number is computed from exact-match history over 90 days, so under broad
+match and Smart Bidding it describes a shrinking slice of the traffic.
+
+The *components* — expected click-through rate, ad relevance, landing page
+experience — are real auction inputs. The aggregate number is not. Never
+recommend chasing the score. Treat a falling trend as a check-engine light
+worth investigating, not a problem in itself.
+
+The same applies to Ad Strength, which Google has confirmed is not used in the
+auction, and which correlates *inversely* with performance in the largest
+published study.
+
+### Things sitting in the Conversions column that people do not expect
+
+Engaged-view conversions — a non-click event — are in the main Conversions
+column for Video, Display, Demand Gen **and Performance Max**. Modelled and
+cross-device conversions are commingled in with no way to separate them. So on
+any account running YouTube or Performance Max, the conversion count is not
+purely click-driven, and no segment will tell you how much of it is not.
+
+### Conversion lag is measured from the impression
+
+Not from the click. The account's own lag distribution is available and is the
+only trustworthy source — there is no credible published benchmark by vertical.
+Use it to set how far back a reporting window must end before the data is
+stable, and add several days on top for modelled conversions to finish
+processing.
+`;

@@ -3,6 +3,7 @@ import { clientWithProperties, type ClientWithProps } from "@/lib/binding";
 import { campaignPerformance, periodTotals, pacing, fromMicros } from "./metrics";
 import { segmentFindings } from "./segments";
 import { forensicFindings } from "./forensics";
+import { biddingHealthFindings } from "./bidding";
 
 export type Finding = {
   kind: string;
@@ -44,6 +45,9 @@ export async function computeFindings(clientId: number): Promise<Finding[]> {
   // Causes rather than symptoms: where traffic physically went, when the
   // account changed, and what it is actually optimising toward.
   out.push(...(await forensicFindings(clientId)));
+  // Google's own verdict on why a bid strategy is constrained, plus the volume
+  // floors below which any target-related judgement is noise.
+  out.push(...(await biddingHealthFindings(clientId)));
 
   return out.sort((a, b) => {
     const rank = { critical: 0, warning: 1, info: 2 };
