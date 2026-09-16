@@ -269,7 +269,9 @@ async function trackingFindings(
   const LEAD = /SUBMIT_LEAD_FORM|SIGNUP|BOOK_APPOINTMENT|REQUEST_QUOTE|CONTACT|PHONE_CALL/i;
   for (const a of actions) {
     if (!a.include_in_conversions) continue;
-    if (LEAD.test(a.category ?? "") && a.counting_type === "MANY_PER_CLICK") {
+    // Imports are exempt: uploads carrying gbraid/wbraid are rejected by
+    // one-per-click actions, so "every" is the required setting there.
+    if (LEAD.test(a.category ?? "") && a.counting_type === "MANY_PER_CLICK" && a.type !== "UPLOAD_CLICKS") {
       out.push({
         kind: "conversion_multi_counting",
         severity: "critical",
@@ -280,12 +282,14 @@ async function trackingFindings(
         entityId: a.action_id,
       });
     }
-    if (/PAGE_VIEW|ENGAGEMENT|DEFAULT/i.test(a.category ?? "")) {
+    // DEFAULT is Google's "Other" category, where plenty of real lead forms
+    // live because nobody picked a category — flagging it produced false alarms.
+    if (/^(PAGE_VIEW|ENGAGEMENT|OUTBOUND_CLICK|GET_DIRECTIONS)$/i.test(a.category ?? "")) {
       out.push({
         kind: "micro_conversion_counted",
         severity: "warning",
         title: `"${a.name}" is counted as a conversion`,
-        detail: `This looks like a page view or engagement rather than a real outcome. Counting it in Conversions makes bidding optimise toward it and flatters every efficiency figure.`,
+        detail: `This is a page view, engagement, outbound click or directions request rather than a submitted lead. Counting it in Conversions makes bidding optimise toward it and flatters every efficiency figure. (For a business customers visit in person, directions can be a genuine signal — confirm before demoting it.)`,
         evidence: { action: a.name, category: a.category },
         entityType: "conversion_action",
         entityId: a.action_id,
@@ -300,6 +304,29 @@ async function trackingFindings(
         evidence: { action: a.name, volume30d: 0 },
         entityType: "conversion_action",
         entityId: a.action_id,
+      });
+    }
+  }
+
+  // The same lead counted twice. A GA4-imported key event and a Google Ads tag
+  // both counted in Conversions for one category is the classic double count:
+  // bidding sees every enquiry as two. Matching on category is a heuristic, so
+  // this asks for confirmation rather than asserting.
+  const counted = actions.filter((a: any) => a.include_in_conversions && LEAD.test(a.category ?? ""));
+  const byCategory = new Map<string, any[]>();
+  for (const a of counted) byCategory.set(a.category, [...(byCategory.get(a.category) ?? []), a]);
+  for (const [category, group] of byCategory) {
+    const ga4 = group.filter((a) => /^GOOGLE_ANALYTICS_4/.test(a.type ?? ""));
+    const tag = group.filter((a) => /^WEBPAGE/.test(a.type ?? ""));
+    if (ga4.length && tag.length) {
+      out.push({
+        kind: "conversion_double_counted",
+        severity: "critical",
+        title: `"${ga4[0].name}" and "${tag[0].name}" may be counting the same lead`,
+        detail: `Both are counted in Conversions under ${category.toLowerCase().replace(/_/g, " ")}: one imported from Analytics, one from a Google Ads tag. If they fire on the same submission, every lead is counted twice and bidding believes the account converts twice as well as it does. Google's rule is one primary action per lead. Check whether their daily counts move together; if so, make the Analytics import secondary.`,
+        evidence: { category, analytics: ga4.map((a) => a.name), tags: tag.map((a) => a.name) },
+        entityType: "conversion_action",
+        entityId: ga4[0].action_id,
       });
     }
   }

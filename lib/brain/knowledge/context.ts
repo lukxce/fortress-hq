@@ -9,8 +9,8 @@
  *
  * Fact-checked 2026-09-16 against Google's call-conversion and Local Services
  * country pages, IAB Serbia AdEx 2025 and Serbian VAT guidance. The main
- * correction: calls are only *partly* untrackable here — two click-based call
- * conversion types need no forwarding number.
+ * correction: calls are only *partly* untrackable here — phone taps on the site
+ * need no forwarding number, and estimated call-asset conversions may not either.
  */
 export const OPERATING_CONTEXT = `
 ## The accounts you are analysing
@@ -31,10 +31,11 @@ display the real number. What does not work is call reporting (call details and
 duration), the "calls from ads" and "calls to a website number" conversion types,
 and call-conversion import — all of those need a forwarding number.
 
-Two native options do work without one: **clicks on call ads and assets**, where
-Google estimates whether a meaningful call followed, and **clicks on a phone
-number on the mobile website**. Both count taps or estimated calls, not answered
-calls, and neither knows the call's length or outcome.
+What does work without one: **clicks on a phone number on the mobile website**,
+which counts taps, not calls. Google also describes **estimated call conversions
+from call assets** that need no forwarding number, but its own help page
+contradicts itself on whether countries without forwarding numbers get them —
+treat that as unresolved here. Neither knows a call's length or outcome.
 
 Balkan tradesmen are typically contacted by phone — treat that as an assumption
 to confirm with the operator, not a measured fact. So unless calls are counted,
