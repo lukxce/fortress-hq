@@ -194,7 +194,9 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
           r.metrics?.averageTargetRoas ?? null,
           budget.recommendedBudgetAmountMicros ? String(budget.recommendedBudgetAmountMicros) : null,
           camp.aiMaxSetting?.enableAiMax ?? null,
-          camp.aiMaxSetting?.bundlingRequired ?? null,
+          // An enum (REQUIRED / NOT_REQUIRED), not a boolean. Writing the raw
+          // value into the boolean column failed the whole campaigns step.
+          camp.aiMaxSetting?.bundlingRequired == null ? null : camp.aiMaxSetting.bundlingRequired === "REQUIRED",
           camp.acaMigrationDateTime ?? null,
           camp.broadMatchMigrationDateTime ?? null,
           budget.resourceName ?? null,
