@@ -91,17 +91,68 @@ export async function q1<T extends QueryResultRow = QueryResultRow>(
   return rows[0] ?? null;
 }
 
-/** Runs a function inside a transaction. */
+/**
+ * Runs a function inside a transaction.
+ *
+ * Single-row INSERT … VALUES statements are buffered and sent as one multi-row
+ * statement. Sync jobs insert thousands of rows one statement at a time, and
+ * against a hosted database every statement is a network round trip: a Search
+ * Console pull of 10,000 rows took the whole 300-second function budget. The
+ * buffer is flushed before any other statement and before COMMIT, so ordering
+ * is preserved. INSERTs with RETURNING are never buffered, because their caller
+ * needs the result. If a batch is rejected — two rows updating the same key in
+ * one statement is the realistic case — that batch is replayed row by row.
+ */
 export async function tx<T>(fn: (run: typeof q) => Promise<T>): Promise<T> {
   await migrate();
   const client = await pool().connect();
+  let buffer: { template: string; head: string; tail: string; rows: unknown[][] } | null = null;
+
+  const exec = async <R extends QueryResultRow>(text: string, params: unknown[] = []) =>
+    (await client.query<R>(text, params)).rows;
+
+  const flush = async () => {
+    if (!buffer || !buffer.rows.length) { buffer = null; return; }
+    const { head, template, tail, rows } = buffer;
+    buffer = null;
+    const width = rows[0].length;
+    const per = Math.max(1, Math.min(1000, Math.floor(60000 / Math.max(1, width))));
+    for (let i = 0; i < rows.length; i += per) {
+      const chunk = rows.slice(i, i + per);
+      const values: string[] = [];
+      const params: unknown[] = [];
+      chunk.forEach((r, j) => {
+        values.push(`(${template.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + j * width}`)})`);
+        params.push(...r);
+      });
+      await client.query("SAVEPOINT bulk");
+      try {
+        await client.query(`${head} VALUES ${values.join(",")} ${tail}`, params);
+        await client.query("RELEASE SAVEPOINT bulk");
+      } catch {
+        await client.query("ROLLBACK TO SAVEPOINT bulk");
+        for (const r of chunk) await client.query(`${head} VALUES (${template}) ${tail}`, r);
+      }
+    }
+  };
+
   try {
     await client.query("BEGIN");
     const scoped = (async <R extends QueryResultRow>(text: string, params: unknown[] = []) => {
-      const { rows } = await client.query<R>(text, params);
-      return rows;
+      const parts = splitInsert(text);
+      if (parts && params.length) {
+        const key = `${parts.head}|${parts.template}|${parts.tail}`;
+        if (buffer && `${buffer.head}|${buffer.template}|${buffer.tail}` !== key) await flush();
+        buffer ??= { ...parts, rows: [] };
+        buffer.rows.push(params);
+        if (buffer.rows.length >= 2000) await flush();
+        return [] as R[];
+      }
+      await flush();
+      return exec<R>(text, params);
     }) as typeof q;
     const out = await fn(scoped);
+    await flush();
     await client.query("COMMIT");
     return out;
   } catch (err) {
@@ -110,6 +161,26 @@ export async function tx<T>(fn: (run: typeof q) => Promise<T>): Promise<T> {
   } finally {
     client.release();
   }
+}
+
+/** Splits a single-row INSERT … VALUES (…) … into its parts, or null if it is not one. */
+function splitInsert(text: string): { head: string; template: string; tail: string } | null {
+  if (!/^\s*INSERT\s+INTO\b/i.test(text) || /\bRETURNING\b/i.test(text)) return null;
+  const m = /\bVALUES\s*\(/i.exec(text);
+  if (!m) return null;
+  const open = m.index + m[0].length - 1;
+  let depth = 0, close = -1, quoted = false;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if (c === "'") quoted = !quoted;
+    if (quoted) continue;
+    if (c === "(") depth++;
+    else if (c === ")" && --depth === 0) { close = i; break; }
+  }
+  if (close < 0) return null;
+  const tail = text.slice(close + 1);
+  if (/\bVALUES\b/i.test(tail) || tail.includes(";")) return null;
+  return { head: text.slice(0, m.index).trimEnd(), template: text.slice(open + 1, close), tail };
 }
 
 /** True if a DATABASE_URL is configured and reachable. */
