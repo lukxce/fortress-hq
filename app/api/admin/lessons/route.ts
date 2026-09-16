@@ -24,14 +24,17 @@ export async function PATCH(req: NextRequest) {
   if (admin instanceof NextResponse) return admin;
   const parsed = z.object({
     id: z.number().int(), active: z.boolean().optional(),
+    status: z.enum(["active", "rejected", "off"]).optional(),
     text: z.string().trim().min(10).max(2000).optional(), product: PRODUCT.optional(),
   }).safeParse(await body(req));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message }, { status: 400 });
   const l = parsed.data;
   try {
-    await q(`UPDATE brain_lessons SET active = COALESCE($2, active), text = COALESCE($3, text),
-               product = COALESCE($4, product), updated_at = now() WHERE id = $1`,
-      [l.id, l.active ?? null, l.text ?? null, l.product ?? null]);
+    // status and active move together: active is what older readers check.
+    const status = l.status ?? (l.active === undefined ? null : l.active ? "active" : "off");
+    await q(`UPDATE brain_lessons SET status = COALESCE($2, status), active = COALESCE($2, status) = 'active',
+               text = COALESCE($3, text), product = COALESCE($4, product), updated_at = now() WHERE id = $1`,
+      [l.id, status, l.text ?? null, l.product ?? null]);
     return NextResponse.json({ ok: true });
   } catch (err) { return failure(err); }
 }

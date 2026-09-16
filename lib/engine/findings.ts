@@ -6,6 +6,7 @@ import { forensicFindings } from "./forensics";
 import { biddingHealthFindings } from "./bidding";
 import { actionableFindings } from "./actionable";
 import { productFindings } from "./products";
+import { portfolioFindings } from "./portfolio";
 import { brandTerms, containsBrand } from "./brand";
 import {
   accountBaseline, fromEuros, poissonUpper, testPeriods, zeroConversionMultiple,
@@ -82,6 +83,8 @@ export async function computeFindings(clientId: number): Promise<Finding[]> {
   out.push(...(await actionableFindings(clientId)));
   // Analytics, Search Console and Tag Manager in their own right.
   out.push(...(await productFindings(clientId)));
+  // What other accounts have taught, where it applies here.
+  out.push(...(await portfolioFindings(clientId).catch(() => [])));
 
   for (const f of out) {
     f.area ??= areaOf(f.kind);

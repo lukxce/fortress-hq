@@ -18,14 +18,16 @@ type Suggestion = {
 
 const PROVIDER_LABEL = { ga4: "Analytics", gsc: "Search Console", gtm: "Tag Manager" } as const;
 
-export function NewClient({ candidates }: { candidates: Candidate[] }) {
+type Option = { id: number; provider: "ga4" | "gsc" | "gtm"; display_name: string; provider_id: string; domain: string | null };
+
+export function NewClient({ candidates, options }: { candidates: Candidate[]; options: Option[] }) {
   const [adsId, setAdsId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [goalType, setGoalType] = useState<"cpa" | "roas">("cpa");
   const [target, setTarget] = useState("");
   const [budget, setBudget] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [accepted, setAccepted] = useState<Set<number>>(new Set());
+  const [chosen, setChosen] = useState<Record<"ga4" | "gsc" | "gtm", number | null>>({ ga4: null, gsc: null, gtm: null });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -43,7 +45,9 @@ export function NewClient({ candidates }: { candidates: Candidate[] }) {
       // Pre-tick only the confident matches. A low-confidence guess that binds
       // itself silently makes the conversion cross-check compare two unrelated
       // businesses, which is worse than leaving the slot empty.
-      setAccepted(new Set(s.filter((x) => x.confidence === "high").map((x) => x.inventory_id)));
+      const pre = { ga4: null, gsc: null, gtm: null } as Record<"ga4" | "gsc" | "gtm", number | null>;
+      for (const x of s) if (x.confidence === "high") pre[x.provider] = x.inventory_id;
+      setChosen(pre);
     } catch { /* suggestions are a convenience, not a requirement */ }
   }
 
@@ -62,13 +66,12 @@ export function NewClient({ candidates }: { candidates: Candidate[] }) {
           targetCpa: goalType === "cpa" && target ? Number(target) : null,
           targetRoas: goalType === "roas" && target ? Number(target) : null,
           monthlyBudget: budget ? Number(budget) : null,
-          bindings: suggestions
-            .filter((s) => accepted.has(s.inventory_id))
-            .map((s) => ({
-              provider: s.provider,
-              inventory_id: s.inventory_id,
-              bound_by: s.confidence === "high" ? "auto" : "confirmed",
-            })),
+          bindings: (["ga4", "gsc", "gtm"] as const)
+            .filter((p) => chosen[p] != null)
+            .map((p) => {
+              const s = suggestions.find((x) => x.provider === p && x.inventory_id === chosen[p]);
+              return { provider: p, inventory_id: chosen[p]!, bound_by: s?.confidence === "high" ? "auto" : s ? "confirmed" : "manual" };
+            }),
         }),
       });
       const body = await res.json();
@@ -142,34 +145,33 @@ export function NewClient({ candidates }: { candidates: Candidate[] }) {
             dashboard will report figures without saying whether they are good.
           </p>
 
-          {suggestions.length > 0 && (
-            <div className="bindings">
-              <span className="label">Also connect</span>
-              {suggestions.map((s) => (
-                <label key={s.inventory_id} className="binding">
-                  <input
-                    type="checkbox"
-                    className="check"
-                    checked={accepted.has(s.inventory_id)}
-                    onChange={(e) => {
-                      const next = new Set(accepted);
-                      e.target.checked ? next.add(s.inventory_id) : next.delete(s.inventory_id);
-                      setAccepted(next);
-                    }}
-                  />
+          <div className="bindings">
+            <span className="label">Also connect</span>
+            {(["ga4", "gsc", "gtm"] as const).map((p) => {
+              const s = suggestions.find((x) => x.provider === p);
+              const list = options.filter((o) => o.provider === p);
+              return (
+                <div key={p} className="binding" style={{ alignItems: "center" }}>
                   <div className="grow">
                     <div className="row" style={{ gap: 8 }}>
-                      <strong>{PROVIDER_LABEL[s.provider]}</strong>
-                      <span className={`pill ${s.confidence === "high" ? "pill-good" : "pill-warn"}`}>
-                        {s.confidence === "high" ? "matched" : "check this"}
-                      </span>
+                      <strong>{PROVIDER_LABEL[p]}</strong>
+                      {s && chosen[p] === s.inventory_id && (
+                        <span className={`pill ${s.confidence === "high" ? "pill-good" : "pill-warn"}`}>{s.confidence === "high" ? "matched" : "check this"}</span>
+                      )}
                     </div>
-                    <span className="meta">{s.label} — {s.reason}</span>
+                    <span className="meta">
+                      {s ? `Suggested: ${s.label} — ${s.reason}` : list.length ? "No match found. Pick one if it belongs to this business." : "Nothing reachable from your Google account."}
+                    </span>
                   </div>
-                </label>
-              ))}
-            </div>
-          )}
+                  <select style={{ width: 300, maxWidth: "100%" }} value={chosen[p] ?? ""} disabled={!list.length} aria-label={PROVIDER_LABEL[p]}
+                    onChange={(e) => setChosen({ ...chosen, [p]: e.target.value ? Number(e.target.value) : null })}>
+                    <option value="">Not connected</option>
+                    {list.map((o) => <option key={o.id} value={o.id}>{o.display_name || o.provider_id}{o.domain ? ` — ${o.domain}` : ""}</option>)}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
 
           {error && <p className="err">{error}</p>}
 

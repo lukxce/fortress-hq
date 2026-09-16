@@ -53,8 +53,17 @@ export async function suggestBindings(adsInventoryId: number): Promise<Suggestio
     let best: { item: InventoryItem; reason: string; confidence: "high" | "low" } | null = null;
 
     if (adsDomain) {
-      const exact = candidates.find((c) => normalise(c.domain) === adsDomain);
+      // Tag Manager exposes no domain, but containers are usually named after the site.
+      const host = (c: InventoryItem) => normalise(c.domain) ?? normalise(c.display_name.replace(/^https?:\/\//i, "").split("/")[0]);
+      const exact = candidates.find((c) => host(c) === adsDomain);
       if (exact) best = { item: exact, reason: `Same domain (${adsDomain})`, confidence: "high" };
+      if (!best) {
+        // "dotconsortium.com" against a container called "DOT Consortium".
+        const label = adsDomain.split(".")[0].replace(/[^a-z0-9]/g, "");
+        const squash = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const named = label.length >= 5 ? candidates.find((c) => squash(c.display_name).includes(label) || squash(c.domain ?? "").includes(label)) : undefined;
+        if (named) best = { item: named, reason: `Named after ${adsDomain} — check this one`, confidence: "low" };
+      }
     }
 
     if (!best) {

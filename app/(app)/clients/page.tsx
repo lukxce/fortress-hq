@@ -22,6 +22,11 @@ export default async function Clients() {
      ORDER BY i.display_name
   `, me ? [me.id] : []);
 
+  const options = await q<any>(`
+    SELECT i.id, i.provider, i.display_name, i.provider_id, i.domain FROM inventory i
+     WHERE i.provider <> 'ads' AND i.status <> 'revoked' AND ${visibleConnections(me?.id ?? null, 1, "i.connection_id")}
+     ORDER BY i.provider, i.display_name`, me ? [me.id] : []);
+
   const stats = await q<any>(`
     SELECT client_id,
            COALESCE(SUM(cost_micros),0)/1e6 AS spend,
@@ -91,7 +96,7 @@ export default async function Clients() {
       )}
 
       {candidates.length > 0 ? (
-        <NewClient candidates={candidates} />
+        <NewClient candidates={candidates} options={options} />
       ) : clients.length === 0 ? (
         <div className="sheet sheet-pad">
           <div className="empty">

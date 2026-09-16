@@ -6,6 +6,9 @@ import { brandTerms } from "@/lib/engine/brand";
 import { ago, count } from "@/lib/format";
 import { ClientSettings } from "@/components/brain/ClientSettings";
 import { Bindings } from "@/components/settings/Bindings";
+import { IndustrySelect } from "@/components/settings/Industry";
+import { INDUSTRIES } from "@/lib/learning/industry";
+import { q1 } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +16,7 @@ export default async function ProjectSettings({ params }: { params: Promise<{ id
   const client = await pageClient(params);
   const id = client.id;
   const me = await currentUser();
+  const trade = await q1<{ industry: string | null; industry_source: string | null }>(`SELECT industry, industry_source FROM clients WHERE id = $1`, [id]);
 
   const one = async (sql: string) => (await q<any>(sql, [id]))[0] ?? {};
   const [inventory, bound, derived, sources] = await Promise.all([
@@ -80,6 +84,11 @@ export default async function ProjectSettings({ params }: { params: Promise<{ id
 
       <div className="card card-pad">
         <h2 style={{ marginBottom: 12 }}>Business details</h2>
+        <div className="field" style={{ marginBottom: 16 }}>
+          <label className="label">Industry</label>
+          <IndustrySelect clientId={id} value={trade?.industry ?? null} source={trade?.industry_source ?? null} options={INDUSTRIES} />
+          <p className="meta" style={{ marginTop: 4 }}>Patterns from other accounts in the same trade weigh more for this project.</p>
+        </div>
         <ClientSettings
           clientId={id} brandTerms={client.brand_terms ?? []} derived={derived} website={client.website}
           targetCpa={client.target_cpa ? Number(client.target_cpa) : null}

@@ -3,6 +3,8 @@ import { q } from "@/lib/db";
 import { syncClient } from "@/lib/jobs/sync";
 import { computeFindings, storeFindings } from "@/lib/engine/findings";
 import { evaluateDue } from "@/lib/jobs/evaluate";
+import { judgeOutcomes } from "@/lib/learning/outcomes";
+import { learn } from "@/lib/learning/run";
 
 export const runtime = "nodejs";
 // 300 is the ceiling on this Vercel plan; a value above it fails the deployment.
@@ -14,6 +16,8 @@ export const maxDuration = 300;
  *
  *   /api/jobs/daily     sync every client, recompute findings, evaluate due experiments
  *   /api/jobs/evaluate  evaluate due experiments only
+ *   /api/jobs/sync-one  sync and recompute findings for one client (?client=)
+ *   /api/jobs/learn     judge changes, recompute portfolio patterns, draft lessons
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ name: string }> }) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -24,21 +28,33 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ name: strin
 
   if (name === "evaluate") return NextResponse.json(await evaluateDue());
 
+  if (name === "sync-one") {
+    const id = Number(req.nextUrl.searchParams.get("client"));
+    if (!Number.isInteger(id)) return NextResponse.json({ error: "Pass ?client=" }, { status: 400 });
+    try {
+      const report = await syncClient(id);
+      await storeFindings(id, await computeFindings(id));
+      return NextResponse.json({ client: id, ok: report.ok });
+    } catch (err) {
+      return NextResponse.json({ client: id, ok: false, error: (err as Error).message });
+    }
+  }
+
   if (name === "daily") {
     // Background jobs run for nobody in particular, so they read every client.
+    // Each client syncs in its own invocation, so the portfolio can grow past
+    // what one function's time limit allows. A few at a time spares the APIs.
     const clients = await q<{ id: number }>(`SELECT id FROM clients WHERE NOT archived ORDER BY id`);
     const out: unknown[] = [];
-    for (const c of clients) {
-      try {
-        const report = await syncClient(c.id);
-        await storeFindings(c.id, await computeFindings(c.id));
-        out.push({ client: c.id, ok: report.ok });
-      } catch (err) {
-        out.push({ client: c.id, ok: false, error: (err as Error).message });
-      }
+    for (let i = 0; i < clients.length; i += 4) {
+      out.push(...await Promise.all(clients.slice(i, i + 4).map((c) =>
+        fetch(`${req.nextUrl.origin}/api/jobs/sync-one?client=${c.id}`, { headers: { authorization: `Bearer ${secret}` } })
+          .then((r) => r.json()).catch((err) => ({ client: c.id, ok: false, error: String(err) })))));
     }
-    return NextResponse.json({ synced: out, evaluated: await evaluateDue() });
+    return NextResponse.json({ synced: out, evaluated: await evaluateDue(), outcomes: await judgeOutcomes() });
   }
+
+  if (name === "learn") return NextResponse.json(await learn());
 
   return NextResponse.json({ error: `Unknown job "${name}".` }, { status: 404 });
 }

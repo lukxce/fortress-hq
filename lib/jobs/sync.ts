@@ -14,6 +14,7 @@ import {
   syncNegatives, syncConversionHealth, syncGa4Pages,
 } from "./structure";
 import { syncGa4Events, syncGa4Dims, syncGscDeep } from "./products";
+import { syncChangeEvents } from "./changes";
 
 // Window sizes are a direct consequence of read economics. A GAQL query costs
 // one operation regardless of how many rows come back, so a wide window is
@@ -80,6 +81,8 @@ export async function syncClient(clientId: number): Promise<SyncReport> {
     await step("impression share", () => syncImpressionShare(auth, client));
     await step("negatives", () => syncNegatives(auth, client));
     await step("conversion health", () => syncConversionHealth(auth, client));
+    // Every change made in the account by anyone, so the brain can learn what followed it.
+    await step("change history", () => syncChangeEvents(auth, client));
     await step("segments", async () => {
       const res = await syncSegments(auth, client);
       const failed = res.filter((r) => r.error);

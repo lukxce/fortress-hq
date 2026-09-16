@@ -3,6 +3,7 @@ import { z } from "zod";
 import { q } from "@/lib/db";
 import { normalise } from "@/lib/engine/brand";
 import { body, failure, scopedClient } from "@/lib/api";
+import { INDUSTRIES } from "@/lib/learning/industry";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,7 @@ const Settings = z.object({
   targetCpa: z.number().positive().nullable().optional(),
   targetRoas: z.number().positive().nullable().optional(),
   monthlyBudget: z.number().positive().nullable().optional(),
+  industry: z.string().refine((v) => v in INDUSTRIES).optional(),
 });
 
 export async function PATCH(req: NextRequest) {
@@ -23,6 +25,7 @@ export async function PATCH(req: NextRequest) {
   const client = await scopedClient(s.client);
   if (client instanceof NextResponse) return client;
   try {
+    if (s.industry) await q(`UPDATE clients SET industry = $2, industry_source = 'manual' WHERE id = $1`, [client.id, s.industry]);
     await q(`UPDATE clients SET
                brand_terms = COALESCE($2, brand_terms),
                website = CASE WHEN $3::boolean THEN $4 ELSE website END,

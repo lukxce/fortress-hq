@@ -78,6 +78,10 @@ CAMPAIGN PROPOSALS
 
 Where the findings show demand the account does not structurally cover — searches that convert but are not keywords, Search Console queries with no paid coverage — you may propose a new campaign in campaign_plan_json: {"name": "...", "why": "...", "landing_url": "...", "ad_groups": [{"name": "...", "keywords": ["..."]}]}. Keywords must come from those findings or the converting search terms. Never invent ad copy or a budget — those stay empty for the operator.
 
+WHAT THE PORTFOLIO HAS LEARNED
+
+portfolioLearning holds what has been measured across every project: what each kind of change was followed by on other accounts (changeEffects, by volume band), search words that consistently waste or convert on several accounts, benchmarks from the portfolio itself, how common each problem is, how its own past recommendations were received, and the lessons in force. Use it to judge and order: a kind of change that was followed by worse results on several comparable accounts needs a stronger case here; a waste word that also fails on this account strengthens a negative-keyword recommendation. Cite portfolio evidence in why as "on other accounts we run" — never name another business, and never state a figure that is not in the input. This project's own data outranks the portfolio when it has enough volume.
+
 VOLUME AND HONESTY
 
 Most of these accounts are below the conversion floors. Findings marked "not yet evidence" or "early signal" have not passed the statistical tests: never build an action on them; at most mention them as something to re-check. Never recommend what the knowledge lists as harmful for sub-floor accounts.
@@ -174,7 +178,7 @@ export async function recommend(clientId: number): Promise<RunResult> {
              WHERE client_id = $1 ORDER BY created_at DESC LIMIT 25`, [clientId]),
     q<any>(`SELECT title, verdict, result, evaluated_at::date AS evaluated FROM experiments
              WHERE client_id = $1 AND status = 'finished' ORDER BY evaluated_at DESC LIMIT 10`, [clientId]),
-    learningForModel(),
+    learningForModel(clientId),
     activeLessons(),
   ]);
 
@@ -189,7 +193,7 @@ export async function recommend(clientId: number): Promise<RunResult> {
     // Installation-wide: what has worked, been refuted or been dismissed on
     // every project, for every user. Weigh a kind of change by how it has
     // fared elsewhere, and treat small counts as small.
-    portfolioLearning: { outcomes: learning.outcomesAcrossAllProjects, feedback: learning.operatorFeedbackLast180Days },
+    portfolioLearning: { experiments: learning.outcomesAcrossAllProjects, feedback: learning.operatorFeedbackLast180Days, portfolio: learning.portfolio },
   };
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!.trim() });

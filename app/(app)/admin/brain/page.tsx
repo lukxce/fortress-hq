@@ -12,15 +12,19 @@ import { BENCHMARKS } from "@/lib/brain/knowledge/benchmarks";
 import { DIAGNOSTICS } from "@/lib/brain/knowledge/diagnostics";
 import { ago, AREA_LABEL } from "@/lib/format";
 import { Lessons } from "@/components/admin/Lessons";
+import { LearnNow, ProposedLessons } from "@/components/admin/Learning";
+import { getSetting } from "@/lib/learning/settings";
+import { INDUSTRIES } from "@/lib/learning/industry";
 import { PRODUCT_LABEL } from "@/components/product/Product";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminBrain() {
   await requireAdmin();
-  const [lessons, outcomes, feedback, runs, spend] = await Promise.all([
-    q<any>(`SELECT l.id, l.text, l.product, l.active, l.created_at, u.email AS author
-              FROM brain_lessons l LEFT JOIN users u ON u.id = l.created_by ORDER BY l.active DESC, l.id DESC`),
+  const [lessons, outcomes, feedback, runs, spend, proposed, patterns, changes, pool, autoApply, lastRun] = await Promise.all([
+    q<any>(`SELECT l.id, l.text, l.product, l.active, l.created_at, COALESCE(u.email, CASE WHEN l.source = 'distilled' THEN 'drafted by the brain' END) AS author
+              FROM brain_lessons l LEFT JOIN users u ON u.id = l.created_by
+             WHERE l.status IN ('active', 'off') ORDER BY l.active DESC, l.id DESC`),
     portfolioOutcomes(),
     portfolioFeedback(),
     q<any>(`SELECT r.created_at, r.model, r.cost_usd, r.findings_count, r.insights_count, r.skipped_count, r.actions_dropped, r.error,
@@ -31,7 +35,22 @@ export default async function AdminBrain() {
                    count(*) FILTER (WHERE created_at > now() - interval '30 days')::int AS runs,
                    count(DISTINCT client_id)::int AS projects
               FROM analysis_runs`),
+    q<any>(`SELECT id, text, product, challenges_knowledge, evidence, created_at FROM brain_lessons WHERE status = 'proposed' ORDER BY id DESC`),
+    q<any>(`SELECT kind, industry, key, stats, projects, significant FROM portfolio_patterns ORDER BY projects DESC, key`),
+    q<any>(`SELECT count(*)::int AS total, count(*) FILTER (WHERE status = 'judged')::int AS judged,
+                   count(*) FILTER (WHERE status = 'waiting')::int AS waiting,
+                   (SELECT count(*)::int FROM change_events) AS events FROM change_outcomes`),
+    q<any>(`SELECT c.id, c.name, c.industry, c.industry_source FROM clients c WHERE NOT c.archived ORDER BY c.name`),
+    getSetting<boolean>("auto_apply_lessons", false),
+    getSetting<any>("last_learning_run", null),
   ]);
+  const effects = patterns.filter((p) => p.kind === "change_effect");
+  const waste = patterns.filter((p) => p.kind === "waste_theme");
+  const converting = patterns.filter((p) => p.kind === "converting_theme");
+  const benchmarks = patterns.filter((p) => p.kind === "benchmark");
+  const prevalence = patterns.filter((p) => p.kind === "finding_prevalence");
+  const scopeLabel = (i: string) => (i === "all" ? "All accounts" : (INDUSTRIES as Record<string, string>)[i] ?? i);
+  const pctx = (v: unknown) => (typeof v === "number" ? `${(v * 100).toFixed(1)}%` : "—");
 
   const modules: [string, string][] = [
     ["Operating context", OPERATING_CONTEXT], ["Small accounts", SMALL_ACCOUNTS], ["Mechanics", MECHANICS], ["Reporting", REPORTING],
@@ -54,6 +73,102 @@ export default async function AdminBrain() {
         <div className="card stat"><span className="label">Analyses · 30 days</span><div className="stat-value">{spend[0].runs}</div><div className="stat-foot">${spend[0].month.toFixed(2)} this month · {spend[0].projects} project{spend[0].projects === 1 ? "" : "s"} analysed so far</div></div>
         <div className="card stat"><span className="label">Predictions judged</span><div className="stat-value">{tally.c + tally.r + tally.i}</div><div className="stat-foot">{tally.c} confirmed · {tally.r} refuted · {tally.i} inconclusive</div></div>
         <div className="card stat"><span className="label">Lessons in force</span><div className="stat-value">{lessons.filter((l) => l.active).length}</div><div className="stat-foot">{lessons.length - lessons.filter((l) => l.active).length} turned off</div></div>
+      </div>
+
+      <div className="card card-pad">
+        <div className="spread" style={{ marginBottom: 6 }}>
+          <h2>What it learns from</h2>
+          <LearnNow autoApply={autoApply} />
+        </div>
+        <p className="meta" style={{ marginBottom: 12 }}>
+          Every project&rsquo;s data, for every user: each change anyone makes in a Google Ads account and what followed it, search words that waste or convert
+          across accounts, the portfolio&rsquo;s own benchmarks for Ads, Analytics and Search Console, how common each problem is, what happened to its own
+          recommendations — and experiments. Measured patterns reach every analysis automatically. Lessons it drafts from them wait below for approval
+          {autoApply ? " — except that you have let them apply themselves" : ""}. It learns again every Monday.
+        </p>
+        <div className="stats">
+          <div className="card stat"><span className="label">Projects in the pool</span><div className="stat-value">{pool.length}</div><div className="stat-foot">{pool.filter((p) => p.industry).length} with an industry</div></div>
+          <div className="card stat"><span className="label">Account changes seen</span><div className="stat-value">{changes[0].events}</div><div className="stat-foot">{changes[0].total} grouped changes</div></div>
+          <div className="card stat"><span className="label">Changes judged</span><div className="stat-value">{changes[0].judged}</div><div className="stat-foot">{changes[0].waiting} waiting for their after-window</div></div>
+          <div className="card stat"><span className="label">Patterns</span><div className="stat-value">{patterns.length}</div><div className="stat-foot">{lastRun ? `learned ${ago(lastRun.at)}` : "not learned yet"}</div></div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head"><h2>Lessons it drafted</h2><span className="meta">Evidence is copied from the measured patterns, never written by the model</span></div>
+        <ProposedLessons lessons={proposed} />
+      </div>
+
+      <div className="card">
+        <div className="card-head"><h2>What changes were followed by</h2><span className="meta">Every account, every change, whoever made it · observational</span></div>
+        {effects.length ? (
+          <div className="table-wrap"><table>
+            <thead><tr><th>Change</th><th>Scope</th><th className="r">Better</th><th className="r">Worse</th><th className="r">No clear change</th><th className="r">Moved with account</th><th className="r">Too little data</th><th className="r">Median CPA change</th><th className="r">Accounts</th></tr></thead>
+            <tbody>{effects.map((e, i) => {
+              const [kind, band] = e.key.split("|");
+              return (
+                <tr key={i}>
+                  <td><div className="cell-name">{kind.replace(/_/g, " ")}</div><div className="cell-sub">{band}</div></td>
+                  <td className="meta">{scopeLabel(e.industry)}</td>
+                  <td className="num r">{e.stats.better}</td><td className="num r">{e.stats.worse}</td><td className="num r">{e.stats.noClearChange}</td>
+                  <td className="num r">{e.stats.movedWithAccount}</td><td className="num r">{e.stats.tooLittleData + e.stats.confounded}</td>
+                  <td className="num r">{pctx(e.stats.medianCpaChange)}</td><td className="num r">{e.projects}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table></div>
+        ) : <div className="card-pad"><p className="meta">No change has finished its after-window yet. A change is judged about five weeks after it was made (seven for bidding changes), so this fills in from then on.</p></div>}
+      </div>
+
+      <div className="grid-2">
+        {([["Words that waste across accounts", waste], ["Words that convert across accounts", converting]] as const).map(([title, list]) => (
+          <div key={title} className="card">
+            <div className="card-head"><h2>{title}</h2><span className="meta">3+ accounts, brand words removed</span></div>
+            {list.length ? (
+              <div className="table-wrap"><table>
+                <thead><tr><th>Word</th><th>Scope</th><th className="r">Clicks</th><th className="r">Conv.</th><th className="r">Expected</th><th className="r">Accounts</th></tr></thead>
+                <tbody>{list.slice(0, 40).map((w, i) => (
+                  <tr key={i}><td className="cell-name">{w.key}</td><td className="meta">{scopeLabel(w.industry)}</td>
+                    <td className="num r">{Math.round(w.stats.clicks)}</td><td className="num r">{Number(w.stats.conversions).toFixed(1)}</td>
+                    <td className="num r">{w.stats.expectedAtAccountsOwnRates}</td><td className="num r">{w.projects}</td></tr>
+                ))}</tbody>
+              </table></div>
+            ) : <div className="card-pad"><p className="meta">Nothing passes the test yet. A word needs to appear in searches on at least three accounts, with enough clicks that the accounts&rsquo; own conversion rates predict three or more conversions.</p></div>}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid-2">
+        <div className="card">
+          <div className="card-head"><h2>Portfolio benchmarks</h2><span className="meta">Your accounts, not industry averages</span></div>
+          {benchmarks.length ? (
+            <div className="table-wrap"><table>
+              <thead><tr><th>Rate</th><th>Scope</th><th className="r">Lower quarter</th><th className="r">Median</th><th className="r">Upper quarter</th><th className="r">Accounts</th></tr></thead>
+              <tbody>{benchmarks.map((b, i) => (
+                <tr key={i}><td className="cell-name">{b.key}</td><td className="meta">{scopeLabel(b.industry)}</td>
+                  <td className="num r">{pctx(b.stats.p25)}</td><td className="num r">{pctx(b.stats.median)}</td><td className="num r">{pctx(b.stats.p75)}</td><td className="num r">{b.projects}</td></tr>
+              ))}</tbody>
+            </table></div>
+          ) : <div className="card-pad"><p className="meta">Run Learn now after the first sync.</p></div>}
+        </div>
+        <div className="card">
+          <div className="card-head"><h2>How common each problem is</h2><span className="meta">Open findings, last 14 days</span></div>
+          {prevalence.length ? (
+            <div className="table-wrap"><table>
+              <thead><tr><th>Finding</th><th className="r">Projects with it</th></tr></thead>
+              <tbody>{prevalence.map((p, i) => (
+                <tr key={i}><td className="cell-name">{p.key.replace(/_/g, " ")}</td><td className="num r">{p.stats.projectsWithIt} of {p.stats.projectsTotal}</td></tr>
+              ))}</tbody>
+            </table></div>
+          ) : <div className="card-pad"><p className="meta">Nothing yet.</p></div>}
+          <div className="card-pad" style={{ borderTop: "1px solid var(--line)" }}>
+            <h3 style={{ marginBottom: 6 }}>Industries</h3>
+            <p className="meta" style={{ marginBottom: 8 }}>Patterns are also read within a trade. Detected automatically; change one in its project settings.</p>
+            <div className="row" style={{ gap: 6 }}>
+              {pool.map((p) => <span key={p.id} className="pill">{p.name} · {p.industry ? scopeLabel(p.industry) : "not detected yet"}</span>)}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="card card-pad">
