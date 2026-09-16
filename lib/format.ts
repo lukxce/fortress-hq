@@ -14,7 +14,9 @@ export function money(n: number | null | undefined, currency?: string | null, op
 
 export function count(n: number | null | undefined, digits = 0): string {
   if (n == null || !Number.isFinite(n)) return "—";
-  return group(n, Number.isInteger(n) ? 0 : digits);
+  // Summed conversions land a hair off whole numbers (19.9999); read them as whole.
+  const whole = Math.abs(n - Math.round(n)) < 0.05;
+  return group(whole ? Math.round(n) : n, whole ? 0 : digits);
 }
 
 export function pct(n: number | null | undefined, digits = 1): string {

@@ -121,8 +121,8 @@ export async function launchDraft(clientId: number, draftId: number) {
       return r.resourceName ?? null;
     });
     await step(`group ${i + 1} keywords`, async () => {
-      await mutate(auth, cid, "adGroupCriteria", g.keywords.map((k) => ({
-        create: { adGroup, status: "ENABLED", keyword: { text: k.text, matchType: k.match } },
+      await mutate(auth, cid, "adGroupCriteria", g.keywords.filter((k) => k.text.trim()).map((k) => ({
+        create: { adGroup, status: "ENABLED", keyword: { text: k.text.trim(), matchType: k.match } },
       })));
       return null;
     });

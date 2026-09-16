@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Draft, DraftGroup, Problem } from "@/lib/builder/draft";
 import { money } from "@/lib/format";
+import { Dialog } from "@/components/ui/Dialog";
 
 type Conversion = { name: string; category: string; last_received_at: string | null; conversions_30d: number };
 
@@ -199,7 +200,7 @@ export function CampaignWizard({ clientId, draftId, initial, initialStep, status
         <button className="btn btn-primary" disabled={busy !== null || locked} onClick={async () => {
           const b = await call<{ groups: DraftGroup[] }>("groups", "/api/builder/groups", post({ client: clientId, summary, places: d.locations.map((l) => l.name) }));
           if (b?.groups?.length) set({ groups: b.groups });
-        }}>{busy === "groups" && <span className="spinner" />}{d.groups.length ? "Suggest again" : "Suggest from your data"}</button>
+        }}>{busy === "groups" && <span className="spinner" />}Suggest from your data</button>
       </div>
       <Why>Suggestions start from demand this business already has: searches Search Console shows the site appearing for, and searches that already produced conversions in Ads. Only where that evidence is thin are new ones suggested, and those are marked.</Why>
       {d.groups.map((g, i) => (
@@ -379,13 +380,24 @@ export function CampaignWizard({ clientId, draftId, initial, initialStep, status
 
   const body = [step1, step2, step3, step4, step5, step6, step7][step - 1];
 
+  // A tick means the step is actually complete, not merely passed.
+  const complete = [
+    Boolean(summary),
+    conversions.length > 0,
+    d.locations.length > 0,
+    d.groups.length > 0 && d.groups.every((x) => x.keywords.some((k) => k.text.trim())),
+    d.groups.length > 0 && !problems.some((p) => p.step === 5),
+    Boolean(d.dailyBudget),
+    locked,
+  ];
+
   return (
     <div className="wizard">
       <ol className="wizard-steps">
         {STEPS.map((s, i) => (
           <li key={s}>
-            <button className={`${step === i + 1 ? "current" : ""} ${i + 1 < step ? "done" : ""}`} onClick={() => setStep(i + 1)}>
-              <span className="n">{i + 1 < step ? "✓" : i + 1}</span>{s}
+            <button className={`${step === i + 1 ? "current" : ""} ${complete[i] && step !== i + 1 ? "done" : ""}`} onClick={() => setStep(i + 1)}>
+              <span className="n">{complete[i] && step !== i + 1 ? "✓" : i + 1}</span>{s}
             </button>
           </li>
         ))}
@@ -403,8 +415,7 @@ export function CampaignWizard({ clientId, draftId, initial, initialStep, status
       </div>
 
       {confirming && (
-        <div className="dialog-backdrop" onClick={() => busy !== "launch" && setConfirming(false)}>
-          <div className="dialog" role="alertdialog" aria-modal onClick={(e) => e.stopPropagation()}>
+        <Dialog onClose={() => setConfirming(false)} locked={busy === "launch"}>
             <div className="dialog-body">
               <div className="label eyebrow">Confirm a change in Google Ads</div>
               <h2>Launch &ldquo;{d.name}&rdquo;</h2>
@@ -423,8 +434,7 @@ export function CampaignWizard({ clientId, draftId, initial, initialStep, status
                 if (b?.ok) { setLaunched(true); router.refresh(); }
               }}>{busy === "launch" && <span className="spinner" />}Launch it</button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
     </div>
   );

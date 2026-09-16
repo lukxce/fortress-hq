@@ -12,8 +12,11 @@ import { z } from "zod";
 
 export const MATCH = ["EXACT", "PHRASE", "BROAD"] as const;
 
+// Half-typed is the normal state of a draft: empty and over-long values are
+// allowed here and reported by problems(), never rejected. A rejected field
+// would make the lenient reader drop the whole groups array mid-edit.
 const Keyword = z.object({
-  text: z.string().trim().min(1).max(80),
+  text: z.string().max(200),
   match: z.enum(MATCH).default("PHRASE"),
   // Where it came from, shown next to it: Search Console, converting searches,
   // the site, or a suggestion.
@@ -21,13 +24,13 @@ const Keyword = z.object({
 });
 
 const Group = z.object({
-  name: z.string().trim().min(1).max(255),
+  name: z.string().max(255),
   keywords: z.array(Keyword).default([]),
   finalUrl: z.string().default(""),
   headlines: z.array(z.string()).default([]),
   descriptions: z.array(z.string()).default([]),
-  path1: z.string().max(15).default(""),
-  path2: z.string().max(15).default(""),
+  path1: z.string().default(""),
+  path2: z.string().default(""),
 });
 
 export const DraftState = z.object({
@@ -72,7 +75,11 @@ export function problems(d: Draft): Problem[] {
   if (!d.groups.length) out.push({ step: 4, message: "Add at least one group of searches." });
   d.groups.forEach((g, i) => {
     const label = `"${g.name || `Group ${i + 1}`}"`;
-    if (!g.keywords.length) out.push({ step: 4, message: `${label} has no searches to show for.` });
+    const kws = g.keywords.filter((k) => k.text.trim());
+    if (!g.name.trim()) out.push({ step: 4, message: `Group ${i + 1} needs a name.` });
+    if (!kws.length) out.push({ step: 4, message: `${label} has no searches to show for.` });
+    if (kws.some((k) => k.text.trim().length > 80)) out.push({ step: 4, message: `${label} has a search over 80 characters.` });
+    if (g.path1.length > 15 || g.path2.length > 15) out.push({ step: 5, message: `${label} has a display path over 15 characters.` });
     if (!/^https?:\/\/\S+\.\S+/.test(g.finalUrl)) out.push({ step: 5, message: `${label} needs the page people land on.` });
     const heads = g.headlines.map((h) => h.trim()).filter(Boolean);
     const descs = g.descriptions.map((h) => h.trim()).filter(Boolean);

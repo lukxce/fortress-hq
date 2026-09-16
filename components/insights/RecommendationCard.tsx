@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { money, dateShort, SEVERITY_LABEL, SEVERITY_PILL, AREA_LABEL } from "@/lib/format";
 import { EvidenceTable } from "@/components/ui/bits";
+import { Dialog } from "@/components/ui/Dialog";
 
 export type Rec = {
   id: number; area: string; severity: "do_first" | "worth_doing" | "when_time";
@@ -165,8 +166,7 @@ export function RecommendationCard({ rec, clientId, currency }: { rec: Rec; clie
       </div>
 
       {dialog && (
-        <div className="dialog-backdrop" onClick={() => busy !== "apply" && setDialog(null)}>
-          <div className="dialog" role="alertdialog" aria-modal onClick={(e) => e.stopPropagation()}>
+        <Dialog onClose={() => setDialog(null)} locked={busy === "apply"}>
             <div className="dialog-body">
               {"error" in dialog ? (
                 <>
@@ -192,8 +192,7 @@ export function RecommendationCard({ rec, clientId, currency }: { rec: Rec; clie
                 </button>
               )}
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
     </article>
   );

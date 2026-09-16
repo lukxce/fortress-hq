@@ -20,7 +20,9 @@ export default async function DraftPage({ params }: { params: Promise<{ id: stri
     q<any>(`SELECT url FROM site_summaries WHERE client_id = $1`, [client.id]),
     q<any>(`SELECT unnest(final_urls) AS url FROM ads WHERE client_id = $1 LIMIT 1`, [client.id]),
   ]);
-  let origin = client.website ?? site[0]?.url ?? "";
+  // Where the business lives online: set by the operator, read before, the
+  // Search Console property, or the landing page of an existing ad.
+  let origin = client.website ?? site[0]?.url ?? (client.gsc_site_url?.startsWith("http") ? client.gsc_site_url : client.gsc_site_url?.startsWith("sc-domain:") ? `https://${client.gsc_site_url.slice(10)}` : "") ?? "";
   if (!origin && url[0]?.url) { try { origin = new URL(url[0].url).origin; } catch { /* ignore */ } }
 
   return (

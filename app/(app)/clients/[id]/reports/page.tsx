@@ -26,7 +26,7 @@ export default async function Reports({ params }: { params: Promise<{ id: string
         </div>
       </header>
 
-      <div className="stats" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
+      <div className="stats" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(148px, 1fr))" }}>
         {r.metrics.map((m) => (
           <div key={m.key} className="card stat">
             <span className="label">{m.label}</span>
@@ -51,7 +51,8 @@ export default async function Reports({ params }: { params: Promise<{ id: string
             <table>
               <thead><tr><th>Day</th><th className="r">Spend</th><th className="r">Clicks</th><th className="r">Conv.</th><th className="r">Cost / conv.</th></tr></thead>
               <tbody>
-                {r.days.map((d) => {
+                {!r.days.some((d) => d.spend > 0) && <tr><td colSpan={5} className="meta">Sync to see the day-of-week shape.</td></tr>}
+                {r.days.some((d) => d.spend > 0) && r.days.map((d) => {
                   const bad = r.accountCpa90 && (d.cpa == null ? d.spend >= r.accountCpa90 : d.cpa >= r.accountCpa90 * 2);
                   const good = r.accountCpa90 && d.cpa != null && d.cpa <= r.accountCpa90;
                   return (
