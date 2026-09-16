@@ -221,3 +221,11 @@ export async function mutate(
   })) as { results?: { resourceName?: string }[] } | null;
   return out?.results ?? [];
 }
+
+/**
+ * A POST to any other Ads service method — for the handful of calls that are
+ * neither a search nor a mutate, such as location suggestions.
+ */
+export async function adsPost(client: OAuth2Client, path: string, body: unknown, loginCustomerId?: string): Promise<any> {
+  return call(client, path, { method: "POST", body, loginCustomerId });
+}
