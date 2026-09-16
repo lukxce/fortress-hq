@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 
 type Totals = {
   spend: number; clicks: number; impressions: number;
@@ -94,6 +95,7 @@ export function Briefing(p: Props) {
         </div>
         <div className="row">
           <RangePicker days={p.days} ranges={p.ranges} />
+          <Link className="btn btn-ghost btn-sm" href={`/clients/${p.client.id}/goals`}>Goals</Link>
           <button className="btn btn-ghost btn-sm" onClick={() => run("sync")} disabled={busy !== null}>
             {busy === "sync" && <span className="spinner" />}
             {busy === "sync" ? "Pulling…" : "Sync now"}
