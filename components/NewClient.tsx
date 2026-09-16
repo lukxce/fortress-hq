@@ -84,7 +84,7 @@ export function NewClient({ candidates }: { candidates: Candidate[] }) {
 
   return (
     <section className="sheet sheet-pad">
-      <h2 style={{ marginBottom: 4 }}>Add a client</h2>
+      <h2 style={{ marginBottom: 4 }}>Add a project</h2>
       <p className="meta" style={{ marginBottom: 18 }}>
         {candidates.length} selected Ads account{candidates.length === 1 ? "" : "s"} not yet set up.
       </p>
@@ -106,7 +106,7 @@ export function NewClient({ candidates }: { candidates: Candidate[] }) {
       {adsId && (
         <div className="new-form">
           <div className="field">
-            <label className="label" htmlFor="cname">Client name</label>
+            <label className="label" htmlFor="cname">Project name</label>
             <input id="cname" type="text" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
 
@@ -175,7 +175,7 @@ export function NewClient({ candidates }: { candidates: Candidate[] }) {
 
           <button className="btn btn-accent" onClick={create} disabled={busy}>
             {busy && <span className="spinner" />}
-            {busy ? "Creating…" : "Create client"}
+            {busy ? "Creating…" : "Create project"}
           </button>
         </div>
       )}

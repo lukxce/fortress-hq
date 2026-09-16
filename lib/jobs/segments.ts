@@ -88,6 +88,22 @@ async function write(client: ClientWithProps, cid: string, segs: Seg[]) {
 const METRICS = `metrics.impressions, metrics.clicks, metrics.cost_micros,
                  metrics.conversions, metrics.conversions_value`;
 
+/**
+ * A tag's parameters as key → value, for the simple values that identify what
+ * it points at (measurementId, conversionId, conversionLabel, eventName, tagId).
+ * Nested maps and lists are summarised rather than kept whole.
+ */
+function flatParams(ps: any[] | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of ps ?? []) {
+    if (!p?.key) continue;
+    if (p.value != null) out[p.key] = String(p.value);
+    else if (Array.isArray(p.list)) out[p.key] = `[${p.list.length} items]`;
+    else if (Array.isArray(p.map)) out[p.key] = `{${p.map.length} entries}`;
+  }
+  return out;
+}
+
 /** consentType's shape varies by API version; coerce rather than trust it. */
 function consentTypes(tag: any): string[] {
   const raw = tag?.consentSettings?.consentType;
@@ -279,7 +295,7 @@ export async function syncGtm(
        VALUES ($1,$2,$3,$4,$5,$6, now())
        ON CONFLICT (container_id, version_id) DO UPDATE SET
          tag_count = EXCLUDED.tag_count, fingerprint = EXCLUDED.fingerprint,
-         seen_at = now()`,
+         seen_at = now()`, // first_seen is left alone: it keeps the date the version first went live
       [client.id, containerId, String(v.containerVersionId ?? "live"),
        v.name ?? null, tags.length, v.fingerprint ?? null]
     );
@@ -288,12 +304,22 @@ export async function syncGtm(
     for (const t of tags) {
       await run(
         `INSERT INTO gtm_tags (client_id, container_id, tag_id, name, type,
-            paused, firing_triggers, consent_status, consent_types, synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())`,
+            paused, firing_triggers, blocking_triggers, consent_status, consent_types, parameters, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())`,
         [client.id, containerId, String(t.tagId), t.name ?? "", t.type ?? null,
-         Boolean(t.paused), t.firingTriggerId ?? [],
+         Boolean(t.paused), t.firingTriggerId ?? [], t.blockingTriggerId ?? [],
          t.consentSettings?.consentStatus ?? null,
-         consentTypes(t)]
+         consentTypes(t), JSON.stringify(flatParams(t.parameter))]
+      );
+    }
+
+    // Triggers, so a tag whose trigger no longer exists — or that has none —
+    // can be told apart from one that simply never fires.
+    await run("DELETE FROM gtm_triggers WHERE container_id = $1", [containerId]);
+    for (const tr of v.trigger ?? []) {
+      await run(
+        `INSERT INTO gtm_triggers (client_id, container_id, trigger_id, name, type) VALUES ($1,$2,$3,$4,$5)`,
+        [client.id, containerId, String(tr.triggerId), tr.name ?? "", tr.type ?? null]
       );
     }
   });

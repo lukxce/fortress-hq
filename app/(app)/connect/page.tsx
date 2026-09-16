@@ -3,6 +3,7 @@ import { setupStatus } from "@/lib/setup";
 import { q } from "@/lib/db";
 import { PickList, type InventoryRow } from "@/components/PickList";
 import { ConnectionPanel } from "@/components/ConnectionPanel";
+import { currentUser, visibleConnections } from "@/lib/user";
 
 export const dynamic = "force-dynamic";
 
@@ -40,13 +41,15 @@ export default async function Connect({
     );
   }
 
+  // Only what this person's own Google sign-in can reach.
+  const me = await currentUser();
   const rows = await q<InventoryRow>(`
     SELECT id, provider, provider_id, display_name, domain, parent_id, parent_name,
            is_manager, currency, timezone, status, extra
       FROM inventory
-     WHERE status <> 'revoked'
+     WHERE status <> 'revoked' AND ${visibleConnections(me?.id ?? null, 1)}
      ORDER BY provider, is_manager DESC, display_name
-  `);
+  `, me ? [me.id] : []);
 
   return (
     <div className="stack rise">

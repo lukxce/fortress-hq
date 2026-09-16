@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const b = await body(req);
-  const client = await scopedClient(b?.client);
+  const client = await scopedClient(b?.client, "view");
   if (client instanceof NextResponse) return client;
   const question = String(b?.question ?? "").trim();
   if (!question) return NextResponse.json({ error: "Ask something." }, { status: 400 });

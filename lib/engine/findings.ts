@@ -5,6 +5,7 @@ import { segmentFindings } from "./segments";
 import { forensicFindings } from "./forensics";
 import { biddingHealthFindings } from "./bidding";
 import { actionableFindings } from "./actionable";
+import { productFindings } from "./products";
 import { brandTerms, containsBrand } from "./brand";
 import {
   accountBaseline, fromEuros, poissonUpper, testPeriods, zeroConversionMultiple,
@@ -13,6 +14,8 @@ import {
 export type Area =
   | "tracking" | "waste" | "targeting" | "budget" | "bidding"
   | "structure" | "creative" | "opportunity" | "schedule";
+
+export type Product = "ads" | "analytics" | "search_console" | "tag_manager" | "cross";
 
 export type EvidenceTable = { columns: string[]; rows: (string | number | null)[][] };
 
@@ -27,6 +30,8 @@ export type Finding = {
   /** The window moneyAtStake covers, so it can be turned into a monthly figure. Defaults to 30. */
   windowDays?: number;
   area?: Area;
+  /** Which Google product it is about; "cross" when it needs two read together. */
+  product?: Product;
   /** The rows behind the finding, for the collapsible table under a recommendation. */
   table?: EvidenceTable;
   entityType?: string;
@@ -75,9 +80,12 @@ export async function computeFindings(clientId: number): Promise<Finding[]> {
   // The findings that turn directly into an action, and the ones that need
   // Analytics, Search Console or Tag Manager alongside Ads.
   out.push(...(await actionableFindings(clientId)));
+  // Analytics, Search Console and Tag Manager in their own right.
+  out.push(...(await productFindings(clientId)));
 
   for (const f of out) {
     f.area ??= areaOf(f.kind);
+    f.product ??= productOf(f.kind);
     f.windowDays ??= WINDOW_BY_KIND.find(([re]) => re.test(f.kind))?.[1] ?? 30;
   }
 
@@ -99,6 +107,16 @@ const AREA_RULES: [RegExp, Area][] = [
   [/^(searches_to_promote|search_console|paid_organic)/, "opportunity"],
   [/^(ads_thin|landing_page|keyword_low_quality)/, "creative"],
 ];
+// Which product a finding belongs to. Cross-product findings are the ones that
+// only exist because two products were read together.
+const PRODUCT_RULES: [RegExp, Product][] = [
+  [/^ga4_/, "analytics"],
+  [/^gsc_/, "search_console"],
+  [/^gtm_/, "tag_manager"],
+  [/^(search_console_opportunities|paid_organic_overlap|landing_page_paid_dropoff|ads_tracking_broken|tracking_silent_everywhere)/, "cross"],
+];
+const productOf = (kind: string): Product => PRODUCT_RULES.find(([re]) => re.test(kind))?.[1] ?? "ads";
+
 const areaOf = (kind: string): Area => AREA_RULES.find(([re]) => re.test(kind))?.[1] ?? "structure";
 
 // The window each finding's money covers. Segment, keyword and search-term
@@ -496,17 +514,17 @@ export async function storeFindings(clientId: number, findings: Finding[]): Prom
     for (const f of findings) {
       await run(
         `INSERT INTO findings (client_id, kind, severity, title, detail, evidence,
-            money_at_stake_micros, entity_type, entity_id, last_seen)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())
+            money_at_stake_micros, entity_type, entity_id, product, last_seen)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
          ON CONFLICT (client_id, kind, entity_type, entity_id) DO UPDATE SET
            severity = EXCLUDED.severity, title = EXCLUDED.title,
            detail = EXCLUDED.detail, evidence = EXCLUDED.evidence,
-           money_at_stake_micros = EXCLUDED.money_at_stake_micros,
+           money_at_stake_micros = EXCLUDED.money_at_stake_micros, product = EXCLUDED.product,
            last_seen = now(),
            status = CASE WHEN findings.status = 'resolved' THEN 'open' ELSE findings.status END`,
         [clientId, f.kind, f.severity, f.title, f.detail, JSON.stringify(f.evidence),
          f.moneyAtStake != null ? String(Math.round(f.moneyAtStake * 1e6)) : null,
-         f.entityType ?? "", f.entityId ?? ""]
+         f.entityType ?? "", f.entityId ?? "", f.product ?? null]
       );
     }
     // Anything that stopped being true is resolved, not deleted, so the history

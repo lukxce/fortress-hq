@@ -1,5 +1,5 @@
 import { q, q1, tx } from "@/lib/db";
-import { currentUser, visibleClients } from "@/lib/user";
+import { currentUser, visibleClients, visibleConnections } from "@/lib/user";
 
 export type InventoryItem = {
   id: number;
@@ -31,12 +31,15 @@ export type Suggestion = {
  * cross-check compare two unrelated businesses, which is worse than no binding.
  */
 export async function suggestBindings(adsInventoryId: number): Promise<Suggestion[]> {
-  const ads = await q1<InventoryItem>("SELECT * FROM inventory WHERE id = $1", [adsInventoryId]);
+  const me = await currentUser();
+  const scope = visibleConnections(me?.id ?? null, 2);
+  const ads = await q1<InventoryItem>(`SELECT * FROM inventory WHERE id = $1 AND ${scope}`, me ? [adsInventoryId, me.id] : [adsInventoryId]);
   if (!ads) return [];
 
   const others = await q<InventoryItem>(
     `SELECT * FROM inventory
-      WHERE provider <> 'ads' AND status <> 'revoked'`
+      WHERE provider <> 'ads' AND status <> 'revoked' AND ${visibleConnections(me?.id ?? null, 1)}`,
+    me ? [me.id] : []
   );
 
   const out: Suggestion[] = [];
@@ -113,11 +116,18 @@ export async function createClient(input: {
   monthlyBudget?: number | null;
   bindings: { provider: "ga4" | "gsc" | "gtm"; inventory_id: number; bound_by: "auto" | "confirmed" | "manual" }[];
 }): Promise<number> {
-  const ads = await q1<InventoryItem>("SELECT * FROM inventory WHERE id = $1", [input.adsInventoryId]);
+  const me = await currentUser();
+  const scope = visibleConnections(me?.id ?? null, 2);
+  const ads = await q1<InventoryItem>(`SELECT * FROM inventory WHERE id = $1 AND ${scope}`, me ? [input.adsInventoryId, me.id] : [input.adsInventoryId]);
   if (!ads) throw new Error("That Ads account is no longer in the inventory.");
+  // Every binding must be reachable by the person creating the project.
+  for (const b of input.bindings) {
+    const ok = await q1(`SELECT 1 FROM inventory WHERE id = $1 AND ${scope}`, me ? [b.inventory_id, me.id] : [b.inventory_id]);
+    if (!ok) throw new Error("One of the chosen properties is not reachable from your Google connection.");
+  }
 
   // A client belongs to whoever created it; others see it only if shared.
-  const owner = (await currentUser())?.id ?? null;
+  const owner = me?.id ?? null;
 
   return tx(async (run) => {
     const [client] = await run<{ id: number }>(

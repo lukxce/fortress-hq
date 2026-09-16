@@ -14,7 +14,13 @@ import { q1 } from "@/lib/db";
  * change rather than a rewrite.
  */
 
-export const identityConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+// Clerk runs when its keys are set. In local development it can also run
+// without keys ("keyless" mode, a temporary development instance), switched on
+// with FORTRESS_CLERK_KEYLESS=1 — so sign-in can be exercised before a real
+// Clerk application exists.
+export const identityConfigured =
+  Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) ||
+  (process.env.NODE_ENV === "development" && process.env.FORTRESS_CLERK_KEYLESS === "1");
 
 export type AppUser = {
   id: number;
@@ -104,7 +110,38 @@ export function visibleClients(
   alias = "c"
 ): string {
   if (userId == null) return "TRUE";
-  return `(${alias}.owner_id = $${paramIndex} OR ${alias}.owner_id IS NULL
+  // Projects with no owner predate separate logins; only an admin sees them,
+  // so a new teammate is never handed the installation's old projects.
+  return `(${alias}.owner_id = $${paramIndex}
+        OR (${alias}.owner_id IS NULL AND EXISTS (SELECT 1 FROM users u WHERE u.id = $${paramIndex} AND u.role = 'owner'))
         OR EXISTS (SELECT 1 FROM client_access ca
                     WHERE ca.client_id = ${alias}.id AND ca.user_id = $${paramIndex}))`;
+}
+
+/**
+ * The same idea for Google connections and everything discovered through them.
+ * A person sees the accounts their own Google sign-in can reach — never
+ * another person's, even when both can reach the same client's account.
+ */
+export function visibleConnections(userId: number | null, paramIndex: number, column = "connection_id"): string {
+  if (userId == null) return "TRUE";
+  return `${column} IN (SELECT co.id FROM connections co WHERE co.user_id = $${paramIndex}
+            OR (co.user_id IS NULL AND EXISTS (SELECT 1 FROM users u WHERE u.id = $${paramIndex} AND u.role = 'owner')))`;
+}
+
+/**
+ * Admins run the installation: the brain, its lessons, users and sharing.
+ * The first person to connect Google is the owner; people who arrive through
+ * sign-in later are members until an admin says otherwise.
+ */
+export const isAdmin = (u: AppUser | null) => u?.role === "owner";
+
+/** For admin-only pages: 404 for everyone else, so the page is not even known to exist. */
+export async function requireAdmin(): Promise<AppUser> {
+  const u = await currentUser();
+  if (!isAdmin(u)) {
+    const { notFound } = await import("next/navigation");
+    notFound();
+  }
+  return u!;
 }

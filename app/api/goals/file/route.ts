@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 /** The Tag Manager import file for a goal Fortress created, as a download. */
 export async function GET(req: NextRequest) {
-  const client = await scopedClient(clientParam(req));
+  const client = await scopedClient(clientParam(req), "view");
   if (client instanceof NextResponse) return client;
   const id = Number(new URL(req.url).searchParams.get("goal"));
   const [g] = await q<any>(`SELECT * FROM conversion_goals WHERE id = $1 AND client_id = $2`, [id, client.id]);

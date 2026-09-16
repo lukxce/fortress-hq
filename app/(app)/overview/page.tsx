@@ -41,8 +41,8 @@ export default async function Portfolio({ searchParams }: { searchParams: Promis
   if (!clients.length) {
     return (
       <div className="stack rise">
-        <header className="page-head"><div><h1>All clients</h1><p className="lede">Signed in as {setup.email ?? "your Google account"}.</p></div></header>
-        <div className="card card-pad"><div className="empty"><h3>No clients yet</h3><p style={{ maxWidth: 440, margin: "0 auto 16px" }}>A client is one Google Ads account plus the Analytics property, Search Console site and Tag Manager container that belong with it.</p><Link href="/clients" className="btn btn-primary">Add a client</Link></div></div>
+        <header className="page-head"><div><h1>All projects</h1><p className="lede">Signed in as {setup.email ?? "your Google account"}.</p></div></header>
+        <div className="card card-pad"><div className="empty"><h3>No projects yet</h3><p style={{ maxWidth: 440, margin: "0 auto 16px" }}>A project is one Google Ads account plus the Analytics property, Search Console site and Tag Manager container that belong with it.</p><Link href="/clients" className="btn btn-primary">Add a project</Link></div></div>
       </div>
     );
   }
@@ -66,7 +66,7 @@ export default async function Portfolio({ searchParams }: { searchParams: Promis
       <header className="page-head">
         <div>
           <div className="label eyebrow">Portfolio · last {days} days</div>
-          <h1>All clients</h1>
+          <h1>All projects</h1>
           <p className="meta">Signed in as {setup.email ?? "your Google account"}</p>
         </div>
         <div className="tabs">
@@ -78,7 +78,7 @@ export default async function Portfolio({ searchParams }: { searchParams: Promis
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Client</th><th className="r">Spend</th><th className="r">Conversions</th><th className="r">Cost / conv.</th><th>To do</th><th>Synced</th></tr>
+              <tr><th>Project</th><th className="r">Spend</th><th className="r">Conversions</th><th className="r">Cost / conv.</th><th>To do</th><th>Synced</th></tr>
             </thead>
             <tbody>
               {clients.map((c, i) => {
@@ -112,7 +112,7 @@ export default async function Portfolio({ searchParams }: { searchParams: Promis
       <section>
         <div className="spread" style={{ marginBottom: 12 }}>
           <h2>Every campaign</h2>
-          {currencies.size > 1 && <span className="meta">Figures are in each client&rsquo;s own currency.</span>}
+          {currencies.size > 1 && <span className="meta">Figures are in each project&rsquo;s own currency.</span>}
         </div>
         <CampaignTable rows={rows} currency={null} showClient />
       </section>

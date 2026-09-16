@@ -6,7 +6,7 @@ import { body, clientParam, failure, scopedClient } from "@/lib/api";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const client = await scopedClient(clientParam(req));
+  const client = await scopedClient(clientParam(req), "view");
   if (client instanceof NextResponse) return client;
   const id = Number(new URL(req.url).searchParams.get("id"));
   if (id) {

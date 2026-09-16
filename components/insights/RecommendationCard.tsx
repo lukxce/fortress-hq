@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { money, dateShort, SEVERITY_LABEL, SEVERITY_PILL, AREA_LABEL } from "@/lib/format";
+import { money, dateShort, SEVERITY_LABEL, SEVERITY_PILL, AREA_LABEL, PRODUCT_LABEL } from "@/lib/format";
 import { EvidenceTable } from "@/components/ui/bits";
 import { Dialog } from "@/components/ui/Dialog";
 
 export type Rec = {
-  id: number; area: string; severity: "do_first" | "worth_doing" | "when_time";
+  id: number; area: string; product?: string; severity: "do_first" | "worth_doing" | "when_time";
   title: string; why: string; steps: string[]; do_by: string | null; effort_minutes: number | null;
   monthly_impact: string | null;
   evidence: { findings?: { title: string; detail: string; table: { columns: string[]; rows: any[][] } | null }[] };
@@ -98,6 +98,7 @@ export function RecommendationCard({ rec, clientId, currency }: { rec: Rec; clie
       <div className="rec-top">
         <div className="row" style={{ gap: 8 }}>
           <span className={`pill ${SEVERITY_PILL[rec.severity]}`}>{SEVERITY_LABEL[rec.severity]}</span>
+          {rec.product && rec.product !== "ads" && <span className="pill pill-blue">{PRODUCT_LABEL[rec.product] ?? rec.product}</span>}
           <span className="pill">{AREA_LABEL[rec.area] ?? rec.area}</span>
           {rec.prediction && <span className="pill pill-blue">Testable</span>}
         </div>

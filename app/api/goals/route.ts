@@ -8,7 +8,7 @@ export const maxDuration = 120;
 
 /** What the composer needs to render: bindings, categories, what already exists. */
 export async function GET(req: NextRequest) {
-  const client = await scopedClient(clientParam(req));
+  const client = await scopedClient(clientParam(req), "view");
   if (client instanceof NextResponse) return client;
   try {
     const pre = await preflight(client.id);

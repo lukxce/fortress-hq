@@ -4,7 +4,7 @@ import { pageClient } from "@/lib/page";
 import { overview } from "@/lib/report";
 import { lastSync } from "@/lib/engine/metrics";
 import { money, count, ago, SEVERITY_LABEL, SEVERITY_PILL } from "@/lib/format";
-import { StatCard, SpendBars } from "@/components/ui/bits";
+import { StatCard, SpendBars, Delta } from "@/components/ui/bits";
 import { CampaignTable } from "@/components/overview/CampaignTable";
 import { JobButton } from "@/components/ui/JobButtons";
 
@@ -20,7 +20,7 @@ export default async function ClientOverview({ params, searchParams }: {
   const days = RANGES.includes(Number(raw) as never) ? Number(raw) : 30;
   const cur = client.currency;
 
-  const [o, sync, attention] = await Promise.all([
+  const [o, sync, attention, beyond] = await Promise.all([
     overview(client.id, days),
     lastSync(client.id),
     q<any>(`SELECT id, title, severity, monthly_impact FROM recommendations
@@ -28,7 +28,33 @@ export default async function ClientOverview({ params, searchParams }: {
              ORDER BY CASE severity WHEN 'do_first' THEN 0 WHEN 'worth_doing' THEN 1 ELSE 2 END,
                       monthly_impact DESC NULLS LAST
              LIMIT 3`, [client.id]),
+    q<any>(`SELECT
+       (SELECT COALESCE(SUM(sessions) FILTER (WHERE date > CURRENT_DATE - 29),0)::float FROM ga4_daily WHERE client_id = $1) AS sessions,
+       (SELECT COALESCE(SUM(sessions) FILTER (WHERE date <= CURRENT_DATE - 29 AND date > CURRENT_DATE - 57),0)::float FROM ga4_daily WHERE client_id = $1) AS sessions_prev,
+       (SELECT COALESCE(SUM(key_events) FILTER (WHERE date > CURRENT_DATE - 29),0)::float FROM ga4_daily WHERE client_id = $1) AS key_events,
+       (SELECT COALESCE(SUM(key_events) FILTER (WHERE date <= CURRENT_DATE - 29 AND date > CURRENT_DATE - 57),0)::float FROM ga4_daily WHERE client_id = $1) AS key_events_prev,
+       (SELECT COALESCE(SUM(clicks) FILTER (WHERE date > CURRENT_DATE - 31),0)::float FROM gsc_totals WHERE client_id = $1) AS organic,
+       (SELECT COALESCE(SUM(clicks) FILTER (WHERE date <= CURRENT_DATE - 31 AND date > CURRENT_DATE - 59),0)::float FROM gsc_totals WHERE client_id = $1) AS organic_prev,
+       (SELECT count(*)::int FROM gtm_tags WHERE client_id = $1 AND NOT paused) AS tags,
+       (SELECT count(*)::int FROM findings WHERE client_id = $1 AND status = 'open' AND product = 'tag_manager' AND severity <> 'info') AS tag_problems`, [client.id]),
   ]);
+  const b = beyond[0];
+  const ch = (a: number, p: number) => (p > 0 ? a / p - 1 : null);
+  const productStrip = (client.ga4_property_id || client.gsc_site_url || client.gtm_container_id) ? (
+    <div className="grid-3">
+      {[
+        client.ga4_property_id && { href: "analytics", label: "Analytics · 28 days", value: `${count(b.sessions)} sessions`, sub: `${count(b.key_events, 1)} key events`, change: ch(b.sessions, b.sessions_prev) },
+        client.gsc_site_url && { href: "search-console", label: "Organic search · 28 days", value: `${count(b.organic)} clicks`, sub: "from Google without ads", change: ch(b.organic, b.organic_prev) },
+        client.gtm_container_id && { href: "tag-manager", label: "Tag Manager", value: `${b.tags} live tags`, sub: b.tag_problems ? `${b.tag_problems} problem${b.tag_problems === 1 ? "" : "s"} found` : "no problems found", change: null },
+      ].filter(Boolean).map((x: any) => (
+        <Link key={x.href} href={`/clients/${client.id}/${x.href}` as never} className="card stat" style={{ color: "inherit", textDecoration: "none" }}>
+          <span className="label">{x.label}</span>
+          <div className="stat-value" style={{ fontSize: 24 }}>{x.value}</div>
+          <div className="stat-foot">{x.change != null && <Delta change={x.change} />}<span>{x.sub}</span></div>
+        </Link>
+      ))}
+    </div>
+  ) : null;
 
   const t = o.totals;
   const noData = t.spend === 0 && o.previous.spend === 0;
@@ -54,7 +80,7 @@ export default async function ClientOverview({ params, searchParams }: {
     <div className="stack rise">
       <header className="page-head">
         <div>
-          <div className="label eyebrow">Overview · last {days} days</div>
+          <div className="label eyebrow">Overview · Google Ads last {days} days</div>
           <h1>{client.name}</h1>
           <p className="meta">Synced {ago(sync?.finished_at)}</p>
         </div>
@@ -67,6 +93,8 @@ export default async function ClientOverview({ params, searchParams }: {
           <JobButton clientId={client.id} job="sync" label="Sync now" busyLabel="Pulling…" />
         </div>
       </header>
+
+      {productStrip}
 
       {noData ? (
         <div className="card card-pad">

@@ -56,6 +56,10 @@ export function dateShort(iso: string | Date | null | undefined): string {
 export const SEVERITY_LABEL = { do_first: "Do first", worth_doing: "Worth doing", when_time: "When you have time" } as const;
 export const SEVERITY_PILL = { do_first: "pill-bad", worth_doing: "pill-warn", when_time: "pill" } as const;
 
+export const PRODUCT_LABEL: Record<string, string> = {
+  ads: "Google Ads", analytics: "Analytics", search_console: "Search Console", tag_manager: "Tag Manager", cross: "Across products",
+};
+
 export const AREA_LABEL: Record<string, string> = {
   tracking: "Tracking", waste: "Wasted spend", targeting: "Targeting", budget: "Budget",
   bidding: "Bidding", structure: "Structure", creative: "Ads and pages",

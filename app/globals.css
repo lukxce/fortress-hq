@@ -131,6 +131,9 @@ ul, ol { margin: 0 0 10px; padding-left: 20px; }
 }
 .side-label { padding: 14px 10px 6px; }
 .side-nav { display: flex; flex-direction: column; gap: 1px; }
+.side-sub { display: flex; align-items: baseline; justify-content: space-between; padding-top: 12px; }
+.side-connect { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-4); }
+.side-connect:hover { color: var(--blue); }
 .side-link {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border-radius: var(--r-sm);

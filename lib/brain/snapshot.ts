@@ -61,6 +61,7 @@ export async function accountSnapshot(clientId: number) {
   ]);
   const keywords = await keywordSplit(clientId);
   const months = await monthlyShape(clientId);
+  const beyondAds = await otherProducts(clientId);
 
   return {
     client: {
@@ -111,7 +112,38 @@ export async function accountSnapshot(clientId: number) {
     breakdowns90d: { devices, hours, daysOfWeek: dow },
     monthlyShape: months,
     existingNegatives: negatives[0]?.n ?? 0,
+    analytics: beyondAds.analytics,
+    searchConsole: beyondAds.searchConsole,
+    tagManager: beyondAds.tagManager,
     _findings: findings,
+  };
+}
+
+/** The other three products, summarised: enough to reason about, not every row. */
+async function otherProducts(clientId: number) {
+  const [ga, events, channels, gsc, pages, tags] = await Promise.all([
+    q<any>(`SELECT COALESCE(SUM(sessions) FILTER (WHERE date > CURRENT_DATE - 31),0)::int AS sessions30,
+                   COALESCE(SUM(key_events) FILTER (WHERE date > CURRENT_DATE - 31),0)::float AS key_events30,
+                   COALESCE(SUM(sessions) FILTER (WHERE date <= CURRENT_DATE - 31 AND date > CURRENT_DATE - 61),0)::int AS sessions_prev30,
+                   COALESCE(SUM(key_events) FILTER (WHERE date <= CURRENT_DATE - 31 AND date > CURRENT_DATE - 61),0)::float AS key_events_prev30,
+                   count(*)::int AS n
+              FROM ga4_daily WHERE client_id = $1`, [clientId]),
+    q<any>(`SELECT event_name, SUM(event_count)::int AS count90, SUM(key_events)::float AS key_events90
+              FROM ga4_events WHERE client_id = $1 GROUP BY event_name ORDER BY SUM(event_count) DESC LIMIT 25`, [clientId]),
+    q<any>(`SELECT channel, SUM(sessions)::int AS sessions90, SUM(key_events)::float AS key_events90
+              FROM ga4_daily WHERE client_id = $1 AND date > CURRENT_DATE - 91 GROUP BY channel ORDER BY 2 DESC`, [clientId]),
+    q<any>(`SELECT COALESCE(SUM(clicks) FILTER (WHERE date > CURRENT_DATE - 31),0)::int AS clicks28,
+                   COALESCE(SUM(impressions) FILTER (WHERE date > CURRENT_DATE - 31),0)::int AS impressions28,
+                   COALESCE(SUM(clicks) FILTER (WHERE date <= CURRENT_DATE - 31 AND date > CURRENT_DATE - 59),0)::int AS clicks_prev28,
+                   count(*)::int AS n
+              FROM gsc_totals WHERE client_id = $1`, [clientId]),
+    q<any>(`SELECT page, clicks::int, prev_clicks::int, position::float FROM gsc_pages WHERE client_id = $1 ORDER BY clicks DESC LIMIT 20`, [clientId]),
+    q<any>(`SELECT name, type, paused FROM gtm_tags WHERE client_id = $1 ORDER BY name LIMIT 60`, [clientId]),
+  ]);
+  return {
+    analytics: ga[0]?.n ? { note: "Google Analytics, all channels, not only paid.", ...ga[0], n: undefined, channels90d: channels, events90d: events } : null,
+    searchConsole: gsc[0]?.n ? { note: "Organic Google search. Windows end three days ago.", ...gsc[0], n: undefined, topPages28d: pages } : null,
+    tagManager: tags.length ? { tags } : null,
   };
 }
 
@@ -121,6 +153,7 @@ function findingForModel(f: Finding, id: number) {
   return {
     id,
     kind: f.kind,
+    product: f.product,
     area: f.area,
     severity: f.severity,
     title: f.title,

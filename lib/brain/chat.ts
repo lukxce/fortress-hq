@@ -4,6 +4,7 @@ import { accountSnapshot } from "./snapshot";
 import { OPERATING_CONTEXT } from "./knowledge/context";
 import { SMALL_ACCOUNTS } from "./knowledge/smallaccount";
 import { REPORTING } from "./knowledge/mechanics";
+import { activeLessons, lessonsAsText } from "./learning";
 
 // The Ask bubble. One fixed snapshot, one prompt, one answer — deliberately not
 // a tool-calling loop, which is what keeps a reply to seconds. Sonnet rather
@@ -11,7 +12,7 @@ import { REPORTING } from "./knowledge/mechanics";
 // matters more in a conversation than in the weekly analysis.
 const CHAT_MODEL = "claude-sonnet-5";
 
-const SYSTEM = `You answer questions about one Google Ads account for the agency operator running it. You can see a snapshot of the account: settings, campaigns, ad groups, keywords, search terms, conversion actions, hour/day/device breakdowns, measured findings, and the current recommendations. You also know whether Analytics, Search Console and Tag Manager are connected.
+const SYSTEM = `You answer questions about one project for the agency operator running it: its Google Ads account and whichever of Analytics, Search Console and Tag Manager are connected. You can see a snapshot: Ads settings, campaigns, ad groups, keywords, search terms, conversion actions, hour/day/device breakdowns; Analytics channels and events; Search Console totals and top pages; Tag Manager tags; measured findings for every product; and the current recommendations.
 
 Rules:
 - Answer only from the snapshot. If a figure is not in it, say so plainly rather than estimating.
@@ -27,6 +28,7 @@ export async function answer(clientId: number, question: string, history: { role
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
 
   const { _findings, ...snap } = await accountSnapshot(clientId);
+  const lessons = await activeLessons();
   const recs = await q<any>(`SELECT title, severity, area, monthly_impact, status, do_by
                                FROM recommendations WHERE client_id = $1 AND status = 'open'
                               ORDER BY created_at DESC LIMIT 20`, [clientId]);
@@ -37,6 +39,7 @@ export async function answer(clientId: number, question: string, history: { role
     max_tokens: 1200,
     system: [
       { type: "text" as const, text: [OPERATING_CONTEXT, SMALL_ACCOUNTS, REPORTING].join("\n\n"), cache_control: { type: "ephemeral" as const } },
+      ...(lessons.length ? [{ type: "text" as const, text: lessonsAsText(lessons) }] : []),
       { type: "text" as const, text: `${SYSTEM}\n\nACCOUNT SNAPSHOT\n${JSON.stringify({ ...snap, currentRecommendations: recs })}`, cache_control: { type: "ephemeral" as const } },
     ],
     messages: [

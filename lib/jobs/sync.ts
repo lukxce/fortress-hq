@@ -13,6 +13,7 @@ import {
   syncAdGroups, syncAds, syncAdGroupMetrics, syncSchedule, syncImpressionShare,
   syncNegatives, syncConversionHealth, syncGa4Pages,
 } from "./structure";
+import { syncGa4Events, syncGa4Dims, syncGscDeep } from "./products";
 
 // Window sizes are a direct consequence of read economics. A GAQL query costs
 // one operation regardless of how many rows come back, so a wide window is
@@ -88,7 +89,10 @@ export async function syncClient(clientId: number): Promise<SyncReport> {
   }
   if (client.ga4_property_id) await step("analytics", () => syncGa4(auth, client));
   if (client.ga4_property_id) await step("analytics pages", () => syncGa4Pages(auth, client));
+  if (client.ga4_property_id) await step("analytics events", () => syncGa4Events(auth, client));
+  if (client.ga4_property_id) await step("analytics devices and sources", () => syncGa4Dims(auth, client));
   if (client.gsc_site_url) await step("search console", () => syncGsc(auth, client));
+  if (client.gsc_site_url) await step("search console pages", () => syncGscDeep(auth, client));
   if (client.gtm_container_id) await step("tag manager", () => syncGtm(auth, client));
   // Derived from what was just written, so it runs last and costs no API calls.
   await step("monthly shape", () => buildMonthly(clientId));

@@ -4,6 +4,7 @@ import { q, tx } from "@/lib/db";
 import { monthlyImpact, storeFindings, type Finding } from "@/lib/engine/findings";
 import { validateAction } from "@/lib/actions/kinds";
 import { accountSnapshot } from "./snapshot";
+import { activeLessons, learningForModel, lessonsAsText } from "./learning";
 import { OPERATING_CONTEXT } from "./knowledge/context";
 import { SMALL_ACCOUNTS } from "./knowledge/smallaccount";
 import { MECHANICS, REPORTING } from "./knowledge/mechanics";
@@ -25,7 +26,11 @@ export function brainConfigured(): boolean {
 
 export const KNOWLEDGE = [OPERATING_CONTEXT, SMALL_ACCOUNTS, MECHANICS, REPORTING, LEADGEN, PMAX, AI_MAX, BENCHMARKS, DIAGNOSTICS, WRITING].join("\n\n");
 
-const SYSTEM = `You write the "What to change" list for an agency operator running this Google Ads account. Your output becomes cards with numbered steps the operator follows, and some of those cards carry a button that makes the change in Google Ads after they confirm.
+const SYSTEM = `You write the "What to change" list for an agency operator running one project: a business's Google Ads account together with whichever of Google Analytics, Search Console and Tag Manager are connected (client.connected). Your output becomes cards with numbered steps the operator follows, and some of those cards carry a button that makes the change in Google Ads after they confirm.
+
+PRODUCTS
+
+Every recommendation names the product whose settings change: ads, analytics, search_console, tag_manager — or cross when the fix only makes sense reading two together (a Search Console query with no paid coverage, a landing page that converts organic visitors but not paid ones). Each finding carries its product. Do not reduce the list to Google Ads when the findings show work in the other products: a broken key event in Analytics or a page losing organic clicks belongs on the list on its own merits. For Analytics, Search Console and Tag Manager the steps name those tools' menus (for example "Admin → Data streams → the stream → Configure tag settings → List unwanted referrals"). Buttons exist only for Google Ads.
 
 THE RULE
 
@@ -92,6 +97,7 @@ const OUTPUT_SCHEMA = {
         type: "object",
         properties: {
           title: { type: "string" },
+          product: { type: "string", enum: ["ads", "analytics", "search_console", "tag_manager", "cross"] },
           area: { type: "string", enum: ["tracking", "waste", "targeting", "budget", "bidding", "structure", "creative", "opportunity", "schedule"] },
           severity: { type: "string", enum: ["do_first", "worth_doing", "when_time"] },
           finding_ids: { type: "array", items: { type: "integer" } },
@@ -106,7 +112,7 @@ const OUTPUT_SCHEMA = {
           prediction_hypothesis: { type: "string" },
           campaign_plan_json: { type: "string" },
         },
-        required: ["title", "area", "severity", "finding_ids", "why", "steps", "do_by_days", "effort_minutes",
+        required: ["title", "product", "area", "severity", "finding_ids", "why", "steps", "do_by_days", "effort_minutes",
           "action_kind", "action_params_json", "prediction_metric", "prediction_direction", "prediction_hypothesis", "campaign_plan_json"],
         additionalProperties: false,
       },
@@ -125,6 +131,7 @@ const Core = z.object({
   steps: z.array(z.string()).min(1),
   severity: z.enum(["do_first", "worth_doing", "when_time"]).catch("worth_doing"),
   area: z.string().catch("structure"),
+  product: z.enum(["ads", "analytics", "search_console", "tag_manager", "cross"]).catch("ads"),
   finding_ids: z.array(z.number().int()).catch([]),
   do_by_days: z.number().int().min(0).max(120).catch(14),
   effort_minutes: z.number().int().min(1).max(600).catch(15),
@@ -146,7 +153,8 @@ export async function recommend(clientId: number): Promise<RunResult> {
   const findings: Finding[] = snap._findings;
   await storeFindings(clientId, findings);
 
-  if (snap.baseline.conversions90 === 0) {
+  const otherProducts = snap.client.connected.analytics || snap.client.connected.searchConsole;
+  if (snap.baseline.conversions90 === 0 && !otherProducts) {
     // No conversions at all means no yardstick: every judgement below would be
     // meaningless. Say so rather than generate advice on top of nothing.
     await q(`UPDATE recommendations SET status = 'superseded', updated_at = now()
@@ -161,11 +169,13 @@ export async function recommend(clientId: number): Promise<RunResult> {
     return { inserted: 1, skipped: 0, actionsDropped: 0, cost: 0, summary: "No conversions recorded in 90 days." };
   }
 
-  const [previous, record] = await Promise.all([
+  const [previous, record, learning, lessons] = await Promise.all([
     q<any>(`SELECT title, status, created_at::date AS created FROM recommendations
              WHERE client_id = $1 ORDER BY created_at DESC LIMIT 25`, [clientId]),
     q<any>(`SELECT title, verdict, result, evaluated_at::date AS evaluated FROM experiments
              WHERE client_id = $1 AND status = 'finished' ORDER BY evaluated_at DESC LIMIT 10`, [clientId]),
+    learningForModel(),
+    activeLessons(),
   ]);
 
   const { _findings, ...forModel } = snap;
@@ -176,6 +186,10 @@ export async function recommend(clientId: number): Promise<RunResult> {
     trackRecord: record.length
       ? record
       : "No experiment has reached its check date on this account, so there is no track record yet.",
+    // Installation-wide: what has worked, been refuted or been dismissed on
+    // every project, for every user. Weigh a kind of change by how it has
+    // fared elsewhere, and treat small counts as small.
+    portfolioLearning: { outcomes: learning.outcomesAcrossAllProjects, feedback: learning.operatorFeedbackLast180Days },
   };
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!.trim() });
@@ -184,6 +198,7 @@ export async function recommend(clientId: number): Promise<RunResult> {
     max_tokens: 16000,
     system: [
       { type: "text" as const, text: KNOWLEDGE, cache_control: { type: "ephemeral" as const } },
+      ...(lessons.length ? [{ type: "text" as const, text: lessonsAsText(lessons) }] : []),
       { type: "text" as const, text: SYSTEM },
     ],
     output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
@@ -268,8 +283,8 @@ export async function recommend(clientId: number): Promise<RunResult> {
     for (const r of rows) {
       const [rec] = await run<{ id: number }>(
         `INSERT INTO recommendations (client_id, run_id, area, severity, title, why, steps, do_by,
-            effort_minutes, monthly_impact, finding_kinds, evidence, action, prediction, campaign_plan)
-         VALUES ($1,$2,$3,$4,$5,$6,$7, CURRENT_DATE + $8::int, $9,$10,$11,$12,$13,$14,$15)
+            effort_minutes, monthly_impact, finding_kinds, evidence, action, prediction, campaign_plan, product)
+         VALUES ($1,$2,$3,$4,$5,$6,$7, CURRENT_DATE + $8::int, $9,$10,$11,$12,$13,$14,$15,$16)
          RETURNING id`,
         [clientId, runId, r.core.area, r.core.severity, r.core.title, r.core.why,
          JSON.stringify(r.core.steps), r.core.do_by_days, r.core.effort_minutes,
@@ -278,7 +293,7 @@ export async function recommend(clientId: number): Promise<RunResult> {
          JSON.stringify(r.evidence),
          r.action ? JSON.stringify({ ...(r.action as object), summary: r.actionSummary }) : null,
          r.prediction ? JSON.stringify(r.prediction) : null,
-         r.plan ? JSON.stringify(r.plan) : null]
+         r.plan ? JSON.stringify(r.plan) : null, r.core.product]
       );
       if (r.prediction) {
         await run(

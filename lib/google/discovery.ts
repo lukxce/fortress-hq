@@ -254,7 +254,7 @@ export async function runDiscovery(
 }
 
 /**
- * Upsert on (provider, provider_id). A row that stops appearing is marked
+ * Upsert on (connection_id, provider, provider_id). A row that stops appearing is marked
  * revoked rather than deleted, so historical metrics keep their parent.
  * Only providers that actually succeeded get their absent rows revoked —
  * otherwise one failed API call would wipe out a whole product's inventory.
@@ -271,8 +271,7 @@ async function persist(
            (connection_id, provider, provider_id, display_name, domain,
             parent_id, parent_name, is_manager, currency, timezone, extra, last_seen)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
-         ON CONFLICT (provider, provider_id) DO UPDATE SET
-           connection_id = EXCLUDED.connection_id,
+         ON CONFLICT (connection_id, provider, provider_id) DO UPDATE SET
            display_name  = EXCLUDED.display_name,
            domain        = COALESCE(EXCLUDED.domain, inventory.domain),
            parent_id     = EXCLUDED.parent_id,
@@ -297,9 +296,12 @@ async function persist(
     for (const provider of succeededProviders) {
       await run(
         `UPDATE inventory SET status = 'revoked'
-          WHERE provider = $1 AND last_seen < now() - interval '1 minute'
+          WHERE provider = $1 AND connection_id = $2
+            AND last_seen < now() - interval '1 minute'
             AND status <> 'revoked'`,
-        [provider]
+        // Only this connection's rows. Without the connection filter, one
+        // person running discovery revoked every other person's accounts.
+        [provider, connectionId]
       );
     }
   });

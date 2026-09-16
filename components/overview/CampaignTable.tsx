@@ -73,7 +73,7 @@ export function CampaignTable({ rows, currency, showClient = false }: { rows: Ca
         </div>
         {showClient && clients.length > 1 && (
           <select value={client} onChange={(e) => setClient(e.target.value)} aria-label="Client">
-            <option value="all">All clients</option>
+            <option value="all">All projects</option>
             {clients.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         )}
@@ -94,7 +94,7 @@ export function CampaignTable({ rows, currency, showClient = false }: { rows: Ca
           <thead>
             <tr>
               {th("name", "Campaign")}
-              {showClient && <th>Client</th>}
+              {showClient && <th>Project</th>}
               {th("health", "Health")}
               {th("spend", "Spend", true)}
               {th("conversions", "Conv.", true)}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { q } from "@/lib/db";
 import { clientsWithProperties } from "@/lib/binding";
 import { NewClient } from "@/components/NewClient";
+import { currentUser, visibleConnections } from "@/lib/user";
 
 export const dynamic = "force-dynamic";
 
@@ -9,15 +10,17 @@ export default async function Clients() {
   const clients = await clientsWithProperties();
 
   // Selected Ads accounts not yet made into a client — the candidates.
+  const me = await currentUser();
   const candidates = await q<any>(`
     SELECT i.id, i.provider_id, i.display_name, i.domain, i.currency
       FROM inventory i
      WHERE i.provider = 'ads' AND NOT i.is_manager AND i.status = 'selected'
+       AND ${visibleConnections(me?.id ?? null, 1, "i.connection_id")}
        AND NOT EXISTS (
          SELECT 1 FROM client_properties cp
           WHERE cp.inventory_id = i.id AND cp.provider = 'ads')
      ORDER BY i.display_name
-  `);
+  `, me ? [me.id] : []);
 
   const stats = await q<any>(`
     SELECT client_id,
@@ -25,8 +28,9 @@ export default async function Clients() {
            COALESCE(SUM(conversions),0) AS conversions
       FROM metrics_daily
      WHERE date > CURRENT_DATE - 31 AND date <= CURRENT_DATE - 1
+       AND entity_type = 'campaign' AND client_id = ANY($1)
      GROUP BY client_id
-  `);
+  `, [clients.map((c) => c.id)]);
   const byClient = new Map(stats.map((s) => [s.client_id, s]));
 
   const openFindings = await q<any>(`
@@ -39,10 +43,10 @@ export default async function Clients() {
   return (
     <div className="stack rise">
       <header className="page-head">
-        <h1>Clients</h1>
+        <h1>Projects</h1>
         <p className="lede">
           {clients.length === 0
-            ? "A client is one Ads account, plus whichever Analytics property, Search Console site and Tag Manager container belong with it."
+            ? "A project is one Ads account, plus whichever Analytics property, Search Console site and Tag Manager container belong with it."
             : `${clients.length} configured.`}
         </p>
       </header>
