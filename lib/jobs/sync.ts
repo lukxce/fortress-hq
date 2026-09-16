@@ -219,13 +219,42 @@ async function writeMetrics(c: ClientWithProps, cid: string, rows: any[]) {
 
 async function syncSearchTerms(auth: OAuth2Client, c: ClientWithProps): Promise<number> {
   const cid = digits(c.ads_customer_id!);
-  const rows = await searchStream(auth, cid, `
-    SELECT search_term_view.search_term, campaign.id,
-           segments.search_term_match_source,
-           metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions
-      FROM search_term_view
-     WHERE segments.date BETWEEN '${isoDaysAgo(SEARCH_TERM_DAYS)}' AND '${isoDaysAgo(0)}'
-  `);
+
+  // Two resources, because Performance Max does not appear in search_term_view
+  // at all. On a PMax-dominant account the standard query returns nothing,
+  // which reads as "this account buys no search traffic" when in fact it is
+  // buying all of it through a resource we never asked.
+  const rows: any[] = [];
+
+  try {
+    rows.push(...await searchStream(auth, cid, `
+      SELECT search_term_view.search_term, campaign.id,
+             segments.search_term_match_source,
+             metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions
+        FROM search_term_view
+       WHERE segments.date BETWEEN '${isoDaysAgo(SEARCH_TERM_DAYS)}' AND '${isoDaysAgo(0)}'
+    `));
+  } catch { /* an account with no standard search campaigns has no view */ }
+
+  try {
+    const pmax = await searchStream(auth, cid, `
+      SELECT campaign_search_term_insight.category_label, campaign.id,
+             metrics.impressions, metrics.clicks, metrics.conversions
+        FROM campaign_search_term_insight
+       WHERE segments.date BETWEEN '${isoDaysAgo(SEARCH_TERM_DAYS)}' AND '${isoDaysAgo(0)}'
+    `);
+    // Search term insights are grouped into categories rather than raw queries,
+    // and carry no cost. That is Google's deliberate opacity for PMax, not a
+    // gap in the sync — record what is available and let the analysis say so.
+    for (const r of pmax) {
+      rows.push({
+        searchTermView: { searchTerm: r.campaignSearchTermInsight?.categoryLabel ?? "" },
+        campaign: r.campaign,
+        segments: { searchTermMatchSource: "PMAX_CATEGORY" },
+        metrics: { ...(r.metrics ?? {}), costMicros: "0" },
+      });
+    }
+  } catch { /* insights are unavailable on some accounts */ }
 
   await tx(async (run) => {
     // Rows arrive segmented; collapse to one row per term per campaign.

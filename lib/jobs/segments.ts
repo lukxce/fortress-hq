@@ -327,17 +327,31 @@ export async function syncPlacements(
        WHERE ${range()}`],
   ];
 
+  // Performance Max serves the same inventory but reports it through a
+  // different resource. Without this, a PMax-dominant account returns zero
+  // placements and reads as "no display spend" when the opposite is true.
+  sources.push(["pmax", `
+    SELECT campaign.id,
+           performance_max_placement_view.placement,
+           performance_max_placement_view.display_name,
+           performance_max_placement_view.placement_type,
+           performance_max_placement_view.target_url,
+           metrics.impressions, metrics.clicks
+      FROM performance_max_placement_view
+     WHERE ${range()}`]);
+
   for (const [kind, gaql] of sources) {
     let rows: any[];
     try {
       rows = await searchStream(auth, cid, gaql);
     } catch {
-      continue;   // an account with no display inventory simply has no view
+      continue;   // an account without that inventory simply has no view
     }
 
     const acc = new Map<string, any>();
     for (const r of rows) {
-      const v = r.detailPlacementView ?? r.groupPlacementView ?? {};
+      const v = r.detailPlacementView ?? r.groupPlacementView
+             ?? r.performanceMaxPlacementView ?? {};
       const placement = v.placement ?? "";
       if (!placement) continue;
       const campaignId = String(r.campaign?.id ?? "");
@@ -380,7 +394,11 @@ export async function syncPlacements(
       }
     });
     total += acc.size;
-    if (kind === "detail" && total > 0) break;   // detail supersedes group
+    // detail supersedes group for standard campaigns; pmax is additive because
+    // it covers inventory the other two never see.
+    if (kind === "detail" && total > 0 && sources.length > 2) {
+      sources.splice(1, 1);   // drop the group query, keep pmax
+    }
   }
 
   return total;
