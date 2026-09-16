@@ -16,7 +16,16 @@ import type { ClientWithProps } from "@/lib/binding";
 // within range and can be widened further if a client is low-volume.
 const WINDOW = 90;
 const isoDaysAgo = (n: number) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
-const range = () => `segments.date BETWEEN '${isoDaysAgo(WINDOW)}' AND '${isoDaysAgo(1)}'`;
+
+// Channel-level data does not exist before this date at any API version, and a
+// window reaching further back returns no breakdown rather than an error — so
+// it under-reports silently. Clamp instead.
+const CHANNEL_DATA_FLOOR = "2025-06-01";
+const fromDate = (n: number) => {
+  const d = isoDaysAgo(n);
+  return d < CHANNEL_DATA_FLOOR ? CHANNEL_DATA_FLOOR : d;
+};
+const range = () => `segments.date BETWEEN '${fromDate(WINDOW)}' AND '${isoDaysAgo(1)}'`;
 const num = (v: unknown) => Number(v ?? 0);
 
 type Seg = {

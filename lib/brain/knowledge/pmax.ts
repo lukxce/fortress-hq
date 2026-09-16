@@ -97,9 +97,26 @@ Two independent large datasets converge: **30 conversions a month is the floor,
 is noise. One of those studies excludes sub-30 campaigns from its analysis
 entirely for that reason.
 
-**Google publishes no minimum budget for Performance Max.** Any specific figure
-circulating is folklore. The only in-product guidance is a Low/Medium/High
-suggestion based on the account's own history.
+**On budget, Google does publish a rule, just not where people look.** The API
+documentation says to try a daily budget of **at least three times your cost per
+conversion**, and warns that a budget too low relative to it produces a slower
+ramp and fewer conversions. That is the sourced original of the "three times
+target" rule the industry repeats without attribution. It is phrased as a
+suggestion and carries no dataset, but it is a real Google statement rather than
+folklore.
+
+There is still **no absolute currency floor** anywhere official. Any specific
+"minimum spend per day" figure is invented.
+
+### Before concluding anything about Shopping
+
+**Roughly 55% of Performance Max campaigns run without a product feed at all.**
+A feedless campaign never appears in Shopping reporting, so "no Shopping
+cannibalisation" is meaningless until you have checked whether a feed exists.
+
+Brand guidelines are also irreversible once enabled, and they move the logo and
+business name off the asset group. An asset-completeness check that counts only
+asset-group assets will report a missing logo on every such campaign, wrongly.
 
 ### What you cannot see, and why that matters
 
@@ -117,4 +134,23 @@ control remains in a closed alpha.
 
 Note that "Display" appears as CONTENT in network reporting, and that Google
 Search bundles Shopping and text ads together while excluding Maps and Discover.
+
+Channel-level data **does not exist at all before June 2025**, at any API
+version. Any comparison reaching further back silently under-reports rather than
+erroring, so a window crossing that date must be clamped or refused.
+
+### How much of what Performance Max reports is actually incremental
+
+Vendor geo-holdout work suggests platform-reported Performance Max conversions
+are plausibly **1.3 to 3 times true incremental**, with one published case
+finding platform reporting overstated impact by about a third, and branded
+campaigns worst affected. Those come from companies selling incrementality
+measurement, so treat them as order-of-magnitude priors rather than a multiplier
+to apply to anyone's numbers.
+
+The useful part is the detection floor that comes with them: at around 100
+conversions a week you can only reliably detect effects above 25%; detecting a
+10% lift needs roughly 1,000 a week. On an account doing twenty conversions a
+month, no incrementality claim in either direction is measurable. Say that
+rather than implying a test would settle it.
 `;

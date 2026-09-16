@@ -138,6 +138,25 @@ export async function biddingHealthFindings(clientId: number): Promise<Finding[]
         entityId: r.campaign_id,
       });
     }
+    // The only budget rule Google actually publishes, and it is in the API docs
+    // rather than the Help Center, which is why the industry repeats "three
+    // times target" without attribution: a daily budget under three times the
+    // cost per conversion ramps slowly and converts less. Google's wording
+    // allows either the set target or the observed cost per conversion, so fall
+    // back to the observed one when no target is set.
+    const cpaBasis = targetCpa ?? (conversions > 0 ? spend / conversions : null);
+    if (cpaBasis && budget > 0 && budget < cpaBasis * 3 && spend > 0) {
+      const needed = cpaBasis * 3;
+      out.push({
+        kind: "budget_below_3x_cpa",
+        severity: "warning",
+        title: `${r.name} runs on a daily budget under three times its cost per conversion`,
+        detail: `The budget is ${budget.toFixed(0)} a day against a ${targetCpa ? "target" : "current"} cost per conversion of ${cpaBasis.toFixed(2)}, so roughly ${(budget / cpaBasis).toFixed(1)} conversions a day at best. Google's own documentation asks for at least three times the cost per conversion — about ${needed.toFixed(0)} here — and warns that a budget below it produces a slower ramp and fewer conversions. Note this is Google's suggestion with no dataset published behind it, not a measured threshold; treat it as a reason to check the budget rather than a defect in itself.`,
+        evidence: { budget, cpa: cpaBasis, needed, multiple: budget / cpaBasis, targetSet: Boolean(targetCpa) },
+        entityType: "campaign",
+        entityId: r.campaign_id,
+      });
+    }
   }
 
   out.push(...(await valueBiddingFindings(clientId)));
