@@ -1,6 +1,8 @@
 import type { TagCheck, TagStatus, Where } from "@/lib/tracking/tagcheck";
 import { ago, dateShort } from "@/lib/format";
 import { CheckTagsButton } from "./CheckTagsButton";
+import { AddGoogleTag, CopyCode } from "./AddGoogleTag";
+import { gtagSnippet } from "@/lib/tracking/addtag";
 
 const STATUS: Record<TagStatus, { label: string; pill: string }> = {
   installed: { label: "On the site", pill: "pill-good" },
@@ -26,14 +28,34 @@ export function TagOverview({ clientId, check, checkedAt, connected }: {
   clientId: number; check: TagCheck | null; checkedAt: string | null;
   connected: { ads: boolean; analytics: boolean; tagManager: boolean };
 }) {
-  const rows: { product: string; id: string | null; status: TagStatus; note: string; data: string }[] = check ? [
+  // A tag can be offered only when its ID is known and it is genuinely absent. "Receiving but
+  // not found" is left alone: the tag is probably behind a consent banner, and a second copy double counts.
+  const missing = (k: "ads" | "analytics") => {
+    const t = check?.[k];
+    return t?.id && t.status === "not_found" && !check?.added?.[k] ? t.id : null;
+  };
+  const gtmOnSite = Boolean(check?.tagManager?.id && check.tagManager.where.directOnPages.length);
+  const offer = (k: "ads" | "analytics") => {
+    const id = missing(k);
+    const added = check?.added?.[k];
+    if (added) return (
+      <div className="notice notice-blue" style={{ marginTop: 6, padding: "8px 10px" }}>
+        <div>Added to the Tag Manager workspace {dateShort(added.at)} — {[...added.created, ...added.skipped].join("; ")}. <strong>Not live until published.</strong>{" "}
+          <a href={added.workspaceUrl} target="_blank" rel="noreferrer">Open Tag Manager →</a></div>
+      </div>
+    );
+    if (!id) return null;
+    return gtmOnSite ? <AddGoogleTag clientId={clientId} product={k} id={id} /> : <CopyCode code={gtagSnippet([id])} />;
+  };
+
+  const rows: { product: string; key?: "ads" | "analytics"; id: string | null; status: TagStatus; note: string; data: string }[] = check ? [
     {
-      product: "Google Ads", id: check.ads?.id ?? null, status: check.ads ? check.ads.status : "not_connected",
+      product: "Google Ads", key: "ads", id: check.ads?.id ?? null, status: check.ads ? check.ads.status : "not_connected",
       note: check.ads ? (check.ads.id ? how(check.ads.where, "ads") : check.idsUnavailable ? "Could not ask Google for the ID — see the note below." : "The account has no conversion tracking ID yet — no conversion action has been created.") : "Connect a Google Ads account in project settings.",
       data: check.ads?.lastConversionReceived ? `Last conversion ${dateShort(check.ads.lastConversionReceived)}` : check.ads ? "No conversion recorded recently" : "—",
     },
     {
-      product: "Analytics", id: check.analytics?.id ?? null, status: check.analytics ? check.analytics.status : "not_connected",
+      product: "Analytics", key: "analytics", id: check.analytics?.id ?? null, status: check.analytics ? check.analytics.status : "not_connected",
       note: check.analytics ? (check.analytics.id ? how(check.analytics.where, "analytics") : check.idsUnavailable ? "Could not ask Google for the ID — see the note below." : "The property has no web data stream.") : "Connect an Analytics property in project settings.",
       data: check.analytics ? `${check.analytics.sessionsLast3Days.toLocaleString()} sessions, last 3 days` : "—",
     },
@@ -67,7 +89,7 @@ export function TagOverview({ clientId, check, checkedAt, connected }: {
                   <tr key={r.product}>
                     <td className="cell-name">{r.product}</td>
                     <td className="num">{r.id ?? "—"}</td>
-                    <td><span className={`pill ${!r.id && check.idsUnavailable && r.status !== "not_connected" ? "pill" : STATUS[r.status].pill}`}>{!r.id && check.idsUnavailable && r.status !== "not_connected" ? "Unknown" : STATUS[r.status].label}</span><div className="cell-sub" style={{ maxWidth: 420, whiteSpace: "normal" }}>{r.note}</div></td>
+                    <td><span className={`pill ${!r.id && check.idsUnavailable && r.status !== "not_connected" ? "pill" : STATUS[r.status].pill}`}>{!r.id && check.idsUnavailable && r.status !== "not_connected" ? "Unknown" : STATUS[r.status].label}</span><div className="cell-sub" style={{ maxWidth: 420, whiteSpace: "normal" }}>{r.note}</div>{r.key && offer(r.key)}</td>
                     <td className="meta">{r.data}</td>
                   </tr>
                 ))}

@@ -36,6 +36,8 @@ export type TagCheck = {
   otherIdsOnSite: { id: string; kind: string; foundOn: string }[];
   consentModeSeen: boolean;
   errors: string[];
+  /** Google tags Fortress put into the Tag Manager workspace, waiting to be published. */
+  added?: Partial<Record<"ads" | "analytics", { at: string; created: string[]; skipped: string[]; workspaceUrl: string }>>;
 };
 
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 FortressTagCheck";
@@ -200,6 +202,13 @@ export async function runTagCheck(clientId: number): Promise<TagCheck> {
     consentModeSeen: /gtag\(\s*['"]consent['"]\s*,\s*['"]default['"]/.test(html) || /consent.?mode|cookiebot|onetrust|cookieyes|usercentrics|iubenda|complianz/i.test(html + containerText),
     errors,
   };
+
+  const previous = await q1<{ result: TagCheck }>(`SELECT result FROM tag_checks WHERE client_id = $1`, [clientId]);
+  for (const k of ["ads", "analytics"] as const) {
+    const pending = previous?.result?.added?.[k];
+    const live = result[k] && ["installed", "via_tag_manager"].includes(result[k]!.status);
+    if (pending && !live) result.added = { ...(result.added ?? {}), [k]: pending };
+  }
 
   await q(`INSERT INTO tag_checks (client_id, result, checked_at) VALUES ($1, $2, now())
            ON CONFLICT (client_id) DO UPDATE SET result = EXCLUDED.result, checked_at = now()`, [clientId, JSON.stringify(result)]);
