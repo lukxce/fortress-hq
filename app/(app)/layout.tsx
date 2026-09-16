@@ -2,7 +2,7 @@ import { q } from "@/lib/db";
 import { clientsWithProperties } from "@/lib/binding";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { AskBubble } from "@/components/shell/AskBubble";
-import { currentUser, isAdmin } from "@/lib/user";
+import { currentUser, isAdmin, identityConfigured } from "@/lib/user";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="app">
       <Sidebar
         admin={isAdmin(me)}
+        identity={identityConfigured}
+        email={me?.email ?? null}
         clients={clients.map((c) => ({
           id: c.id, name: c.name, urgent: byClient[c.id] ?? 0,
           ads: Boolean(c.ads_customer_id), analytics: Boolean(c.ga4_property_id),

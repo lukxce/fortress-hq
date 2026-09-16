@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { SignOut } from "./SignOut";
 
 type ClientItem = { id: number; name: string; urgent: number; ads: boolean; analytics: boolean; searchConsole: boolean; tagManager: boolean };
 
@@ -38,7 +39,7 @@ function Icon({ d }: { d: React.ReactNode }) {
 type NavLink = { href: string; label: string; icon: React.ReactNode; exact?: boolean; count?: number };
 type Section = { title: string | null; links: NavLink[]; connected?: boolean };
 
-export function Sidebar({ clients, admin }: { clients: ClientItem[]; admin: boolean }) {
+export function Sidebar({ clients, admin, identity, email }: { clients: ClientItem[]; admin: boolean; identity: boolean; email: string | null }) {
   const path = usePathname();
   const router = useRouter();
   const match = path.match(/^\/clients\/(\d+)/);
@@ -79,11 +80,6 @@ export function Sidebar({ clients, admin }: { clients: ClientItem[]; admin: bool
 
   const active = (href: string, exact?: boolean) => (exact ? path === href : path === href || path.startsWith(`${href}/`));
 
-  async function signOut() {
-    await fetch("/api/login", { method: "DELETE" });
-    router.replace("/login");
-    router.refresh();
-  }
 
   const link = (l: NavLink) => (
     <Link key={l.href} href={l.href as never} className={`side-link${active(l.href, l.exact) ? " active" : ""}`}>
@@ -151,9 +147,8 @@ export function Sidebar({ clients, admin }: { clients: ClientItem[]; admin: bool
       )}
 
       <div className="side-foot">
-        <button className="side-link" style={{ background: "none", border: 0, font: "inherit", cursor: "pointer", textAlign: "left" }} onClick={signOut}>
-          <Icon d={I.out} />Sign out
-        </button>
+        {identity && email && <div className="meta" style={{ padding: "0 10px 6px", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={email}>{email}</div>}
+        <SignOut identity={identity}><Icon d={I.out} />Sign out</SignOut>
       </div>
     </aside>
   );
