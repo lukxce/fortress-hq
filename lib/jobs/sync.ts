@@ -41,7 +41,9 @@ export async function syncClient(clientId: number): Promise<SyncReport> {
   if (!conn) throw new Error("No active Google connection.");
   const auth = await clientFor(conn.id);
 
-  const client = await clientWithProperties(clientId);
+  // Unscoped on purpose: the daily job syncs every client, and user-facing
+  // routes check the caller may see the client before calling this.
+  const client = await clientWithProperties(clientId, null);
   if (!client) throw new Error(`No client ${clientId}`);
 
   const report: SyncReport = { clientId, ok: true, steps: [], ops: 0 };

@@ -18,7 +18,9 @@ const identityConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 // fetches the landing page and the privacy policy, the privacy URL is
 // registered on the OAuth consent screen, and a home page behind a password
 // would fail the check that its relevance to the app "must be clear".
-const PUBLIC = ["/login", "/api/login", "/privacy.html", "/sign-in", "/sign-up"];
+// /api/jobs is reached by Vercel Cron, which has no session; the route checks
+// CRON_SECRET itself and refuses everything else.
+const PUBLIC = ["/login", "/api/login", "/privacy.html", "/sign-in", "/sign-up", "/api/jobs"];
 const PUBLIC_EXACT = ["/"];
 
 const isPublic = (pathname: string) =>

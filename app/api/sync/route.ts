@@ -2,15 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import { syncClient } from "@/lib/jobs/sync";
 import { computeFindings, storeFindings } from "@/lib/engine/findings";
 import { AuthExpiredError } from "@/lib/google/auth";
+import { clientParam, scopedClient } from "@/lib/api";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
-  const clientId = Number(new URL(req.url).searchParams.get("client"));
-  if (!Number.isFinite(clientId)) {
-    return NextResponse.json({ error: "Pass ?client=<id>" }, { status: 400 });
-  }
+  const scoped = await scopedClient(clientParam(req));
+  if (scoped instanceof NextResponse) return scoped;
+  const clientId = scoped.id;
   try {
     const report = await syncClient(clientId);
     // Findings depend only on what was just synced, and are cheap, so they are

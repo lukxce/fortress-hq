@@ -116,10 +116,13 @@ export async function createClient(input: {
   const ads = await q1<InventoryItem>("SELECT * FROM inventory WHERE id = $1", [input.adsInventoryId]);
   if (!ads) throw new Error("That Ads account is no longer in the inventory.");
 
+  // A client belongs to whoever created it; others see it only if shared.
+  const owner = (await currentUser())?.id ?? null;
+
   return tx(async (run) => {
     const [client] = await run<{ id: number }>(
-      `INSERT INTO clients (name, goal_type, target_cpa, target_roas, monthly_budget, currency, timezone)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      `INSERT INTO clients (name, goal_type, target_cpa, target_roas, monthly_budget, currency, timezone, owner_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
       [
         input.name.trim(),
         input.goalType,
@@ -128,6 +131,7 @@ export async function createClient(input: {
         input.monthlyBudget ?? null,
         ads.currency,
         ads.timezone,
+        owner,
       ]
     );
 
@@ -162,6 +166,10 @@ export type ClientRow = {
   monthly_budget: string | null;
   currency: string | null;
   timezone: string | null;
+  website: string | null;
+  brand_terms: string[];
+  ads_settings: Record<string, any>;
+  owner_id: number | null;
 };
 
 export type ClientWithProps = ClientRow & {

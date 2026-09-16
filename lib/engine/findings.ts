@@ -47,7 +47,7 @@ export const monthlyImpact = (f: Finding) =>
 const floor = (client: ClientWithProps, eur = 50) => fromEuros(eur, client.currency);
 
 export async function computeFindings(clientId: number): Promise<Finding[]> {
-  const client = await clientWithProperties(clientId);
+  const client = await clientWithProperties(clientId, null);
   if (!client) return [];
 
   const out: Finding[] = [];
