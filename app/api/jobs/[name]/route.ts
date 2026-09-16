@@ -5,7 +5,8 @@ import { computeFindings, storeFindings } from "@/lib/engine/findings";
 import { evaluateDue } from "@/lib/jobs/evaluate";
 
 export const runtime = "nodejs";
-export const maxDuration = 800;
+// 300 is the ceiling on this Vercel plan; a value above it fails the deployment.
+export const maxDuration = 300;
 
 /**
  * Scheduled jobs, run over HTTP so the same code serves Vercel Cron and a
