@@ -69,8 +69,8 @@ export async function preflight(clientId: number) {
   if (!client) throw new Error(`No client ${clientId}`);
 
   const existing = client.ads_customer_id
-    ? await q<{ name: string; category: string; include_in_conversions_metric: boolean }>(
-        `SELECT name, category, include_in_conversions_metric
+    ? await q<{ name: string; category: string; include_in_conversions: boolean }>(
+        `SELECT name, category, include_in_conversions
            FROM conversion_actions WHERE client_id = $1 AND status <> 'REMOVED'
           ORDER BY name`,
         [clientId]

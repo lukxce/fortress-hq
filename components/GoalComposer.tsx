@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 type Category = { value: string; label: string; counting: string };
-type Existing = { name: string; category: string; include_in_conversions_metric: boolean };
+type Existing = { name: string; category: string; include_in_conversions: boolean };
 
 type Result = {
   goalId: number;
@@ -42,7 +42,7 @@ export function GoalComposer({
 
   const chosen = categories.find((c) => c.value === category);
   const counting = chosen?.counting === "MANY_PER_CLICK" ? "MANY_PER_CLICK" : "ONE_PER_CLICK";
-  const primaryCount = existing.filter((e) => e.include_in_conversions_metric).length;
+  const primaryCount = existing.filter((e) => e.include_in_conversions).length;
 
   async function submit() {
     if (!name.trim()) return setError("Give the goal a name.");

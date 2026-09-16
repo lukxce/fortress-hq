@@ -11,8 +11,10 @@ export default async function GoalsPage({ params }: { params: Promise<{ id: stri
   const clientId = Number(id);
   if (!Number.isFinite(clientId)) notFound();
 
-  const pre = await preflight(clientId).catch(() => null);
-  if (!pre) notFound();
+  // Deliberately not caught. A missing client is a 404; a broken query is a
+  // 500 that says what broke. Collapsing the second into the first is how a
+  // column-name typo spent a deploy looking like a routing problem.
+  const pre = await preflight(clientId);
 
   const created = await q<any>(
     `SELECT id, name, category, is_primary, conversion_id, conversion_label,
@@ -80,7 +82,7 @@ export default async function GoalsPage({ params }: { params: Promise<{ id: stri
                 <tr key={e.name}>
                   <td>{e.name}</td>
                   <td className="meta">{e.category}</td>
-                  <td>{e.include_in_conversions_metric ? "Yes" : "No"}</td>
+                  <td>{e.include_in_conversions ? "Yes" : "No"}</td>
                 </tr>
               ))}
             </tbody>
