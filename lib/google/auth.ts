@@ -105,24 +105,52 @@ export async function completeAuth(code: string): Promise<number> {
       )
     : null;
 
+  // Whose consent this is. With an identity provider that is the signed-in
+  // person; without one, the Google address itself is the only identity the
+  // installation has, so it seeds a user. Either way the connection ends up
+  // owned, which is what keeps a second operator from inheriting it.
+  const userId = await ownerFor(email);
+
   if (existing) {
     await q(
       `UPDATE connections
           SET refresh_token_enc = $2, scopes = $3, status = 'active',
-              last_error = NULL, last_used_at = now()
+              last_error = NULL, last_used_at = now(),
+              user_id = COALESCE(user_id, $4)
         WHERE id = $1`,
-      [existing.id, encrypt(tokens.refresh_token), granted]
+      [existing.id, encrypt(tokens.refresh_token), granted, userId]
     );
     return existing.id;
   }
 
   const row = await q1<{ id: number }>(
-    `INSERT INTO connections (kind, google_email, refresh_token_enc, scopes, last_used_at)
-     VALUES ('user_oauth', $1, $2, $3, now())
+    `INSERT INTO connections (kind, google_email, refresh_token_enc, scopes, user_id, last_used_at)
+     VALUES ('user_oauth', $1, $2, $3, $4, now())
      RETURNING id`,
-    [email, encrypt(tokens.refresh_token), granted]
+    [email, encrypt(tokens.refresh_token), granted, userId]
   );
   return row!.id;
+}
+
+/**
+ * The user a new connection belongs to.
+ *
+ * Prefers the signed-in identity. Falling back to the Google address matters
+ * on a fresh single-operator install, where nobody has signed in as anybody
+ * and the first authorisation is what creates user one.
+ */
+async function ownerFor(email: string | null): Promise<number | null> {
+  const { currentUser } = await import("@/lib/user");
+  const who = await currentUser();
+  if (who) return who.id;
+  if (!email) return null;
+  const seeded = await q1<{ id: number }>(
+    `INSERT INTO users (email, name, role) VALUES ($1, $1, 'owner')
+     ON CONFLICT (email) DO UPDATE SET last_seen_at = now()
+     RETURNING id`,
+    [email]
+  );
+  return seeded?.id ?? null;
 }
 
 /** An authorised client for a stored connection. Throws AuthExpiredError if dead. */
@@ -163,13 +191,32 @@ export async function clientFor(connectionId: number): Promise<OAuth2Client> {
   return client;
 }
 
-/** The connection we use by default: the most recently authorised active one. */
+/**
+ * The signed-in user's most recently authorised connection.
+ *
+ * A refresh token is one person's consent, so this is scoped: without the
+ * filter, a second operator signing in would be handed the first one's Google
+ * credential and could act on their accounts. Connections with no owner
+ * predate ownership and belong to the installation, so they stay visible.
+ */
 export async function activeConnection(): Promise<Connection | null> {
+  const { currentUser } = await import("@/lib/user");
+  const userId = (await currentUser())?.id ?? null;
+  if (userId == null) {
+    return q1<Connection>(
+      `SELECT * FROM connections
+        WHERE status = 'active' AND refresh_token_enc IS NOT NULL
+        ORDER BY last_used_at DESC NULLS LAST, id DESC
+        LIMIT 1`
+    );
+  }
   return q1<Connection>(
     `SELECT * FROM connections
       WHERE status = 'active' AND refresh_token_enc IS NOT NULL
-      ORDER BY last_used_at DESC NULLS LAST, id DESC
-      LIMIT 1`
+        AND (user_id = $1 OR user_id IS NULL)
+      ORDER BY (user_id = $1) DESC, last_used_at DESC NULLS LAST, id DESC
+      LIMIT 1`,
+    [userId]
   );
 }
 

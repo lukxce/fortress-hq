@@ -1,4 +1,5 @@
 import { q, q1, tx } from "@/lib/db";
+import { currentUser, visibleClients } from "@/lib/user";
 
 export type InventoryItem = {
   id: number;
@@ -171,7 +172,18 @@ export type ClientWithProps = ClientRow & {
 };
 
 /** A client plus the provider ids the sync job needs. */
-export async function clientsWithProperties(): Promise<ClientWithProps[]> {
+/**
+ * Every client the signed-in user may see, with the provider ids bound to it.
+ *
+ * Scoped rather than global: a second user must not be handed another
+ * operator's accounts just because they share an installation. Background jobs
+ * that legitimately run for nobody pass a user id explicitly.
+ */
+export async function clientsWithProperties(
+  forUserId?: number | null
+): Promise<ClientWithProps[]> {
+  const userId = forUserId !== undefined ? forUserId : (await currentUser())?.id ?? null;
+  const scope = visibleClients(userId, 1);
   return q<ClientWithProps>(`
     SELECT c.*,
            MAX(i.provider_id) FILTER (WHERE i.provider = 'ads') AS ads_customer_id,
@@ -181,13 +193,16 @@ export async function clientsWithProperties(): Promise<ClientWithProps[]> {
       FROM clients c
       LEFT JOIN client_properties cp ON cp.client_id = c.id
       LEFT JOIN inventory i ON i.id = cp.inventory_id
-     WHERE NOT c.archived
+     WHERE NOT c.archived AND ${scope}
      GROUP BY c.id
      ORDER BY c.name
-  `);
+  `, userId == null ? [] : [userId]);
 }
 
-export async function clientWithProperties(id: number): Promise<ClientWithProps | null> {
-  const all = await clientsWithProperties();
+export async function clientWithProperties(
+  id: number,
+  forUserId?: number | null
+): Promise<ClientWithProps | null> {
+  const all = await clientsWithProperties(forUserId);
   return all.find((c) => c.id === id) ?? null;
 }
