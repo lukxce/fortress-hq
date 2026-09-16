@@ -265,6 +265,8 @@ export async function inflectionFindings(clientId: number): Promise<Finding[]> {
       })),
     },
     moneyAtStake: found.after.spend - found.after.conversions * beforeCpa,
+    // The excess accrued over every month since the change, not one.
+    windowDays: Math.round(afterMonths * 30.4),
   }];
 }
 
