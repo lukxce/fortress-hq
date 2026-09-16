@@ -454,7 +454,9 @@ export async function forensicFindings(clientId: number): Promise<Finding[]> {
     inflectionFindings(clientId),
     compositionFindings(clientId),
     biddingFindings(clientId),
-    underfundedFindings(clientId),
+    // underfundedFindings is superseded by budget_capped_winner (actionable.ts),
+    // which reads lost impression share to budget rather than a status Google
+    // sets by design on Maximise Conversions.
   ]);
   return groups.flat();
 }

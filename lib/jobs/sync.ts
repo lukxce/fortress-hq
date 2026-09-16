@@ -9,6 +9,10 @@ import {
   syncSegments, syncKeywords, syncLandingPages, syncGtm,
   syncPlacements, buildMonthly, syncConversionBreakdown,
 } from "./segments";
+import {
+  syncAdGroups, syncAds, syncAdGroupMetrics, syncSchedule, syncImpressionShare,
+  syncNegatives, syncConversionHealth, syncGa4Pages,
+} from "./structure";
 
 // Window sizes are a direct consequence of read economics. A GAQL query costs
 // one operation regardless of how many rows come back, so a wide window is
@@ -66,6 +70,13 @@ export async function syncClient(clientId: number): Promise<SyncReport> {
     await step("landing pages", () => syncLandingPages(auth, client));
     await step("placements", () => syncPlacements(auth, client));
     await step("conversion mix", () => syncConversionBreakdown(auth, client));
+    await step("ad groups", () => syncAdGroups(auth, client));
+    await step("ads", () => syncAds(auth, client));
+    await step("ad group metrics", () => syncAdGroupMetrics(auth, client));
+    await step("hour and day", () => syncSchedule(auth, client));
+    await step("impression share", () => syncImpressionShare(auth, client));
+    await step("negatives", () => syncNegatives(auth, client));
+    await step("conversion health", () => syncConversionHealth(auth, client));
     await step("segments", async () => {
       const res = await syncSegments(auth, client);
       const failed = res.filter((r) => r.error);
@@ -74,6 +85,7 @@ export async function syncClient(clientId: number): Promise<SyncReport> {
     });
   }
   if (client.ga4_property_id) await step("analytics", () => syncGa4(auth, client));
+  if (client.ga4_property_id) await step("analytics pages", () => syncGa4Pages(auth, client));
   if (client.gsc_site_url) await step("search console", () => syncGsc(auth, client));
   if (client.gtm_container_id) await step("tag manager", () => syncGtm(auth, client));
   // Derived from what was just written, so it runs last and costs no API calls.
@@ -115,7 +127,9 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
            campaign.start_date_time,
            campaign.end_date_time,
            campaign_budget.amount_micros,
-           campaign_budget.explicitly_shared
+           campaign_budget.explicitly_shared,
+           campaign_budget.resource_name,
+           campaign.geo_target_type_setting.positive_geo_target_type
       FROM campaign
      WHERE campaign.status != 'REMOVED'
   `);
@@ -138,8 +152,8 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
             start_date, end_date, bid_strategy_status, avg_target_cpa_micros,
             avg_target_roas, recommended_budget_micros, ai_max_enabled,
             ai_max_bundling_required, aca_migrated_at, broad_match_migrated_at,
-            last_synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23, now())
+            budget_resource_name, geo_target_type, last_synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25, now())
          ON CONFLICT (ads_customer_id, campaign_id) DO UPDATE SET
            client_id = EXCLUDED.client_id, name = EXCLUDED.name,
            status = EXCLUDED.status, channel_type = EXCLUDED.channel_type,
@@ -159,6 +173,8 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
            ai_max_bundling_required = EXCLUDED.ai_max_bundling_required,
            aca_migrated_at = EXCLUDED.aca_migrated_at,
            broad_match_migrated_at = EXCLUDED.broad_match_migrated_at,
+           budget_resource_name = EXCLUDED.budget_resource_name,
+           geo_target_type = EXCLUDED.geo_target_type,
            last_synced_at = now()`,
         [
           c.id, cid, String(camp.id), camp.name ?? "", camp.status ?? null,
@@ -179,6 +195,8 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
           camp.aiMaxSetting?.bundlingRequired ?? null,
           camp.acaMigrationDateTime ?? null,
           camp.broadMatchMigrationDateTime ?? null,
+          budget.resourceName ?? null,
+          camp.geoTargetTypeSetting?.positiveGeoTargetType ?? null,
         ]
       );
     }

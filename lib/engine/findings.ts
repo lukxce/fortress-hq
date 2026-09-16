@@ -4,9 +4,17 @@ import { campaignPerformance, periodTotals, pacing, fromMicros } from "./metrics
 import { segmentFindings } from "./segments";
 import { forensicFindings } from "./forensics";
 import { biddingHealthFindings } from "./bidding";
+import { actionableFindings } from "./actionable";
+import { brandTerms, containsBrand } from "./brand";
 import {
   accountBaseline, fromEuros, poissonUpper, testPeriods, zeroConversionMultiple,
 } from "./stats";
+
+export type Area =
+  | "tracking" | "waste" | "targeting" | "budget" | "bidding"
+  | "structure" | "creative" | "opportunity" | "schedule";
+
+export type EvidenceTable = { columns: string[]; rows: (string | number | null)[][] };
 
 export type Finding = {
   kind: string;
@@ -14,10 +22,20 @@ export type Finding = {
   title: string;
   detail: string;
   evidence: Record<string, unknown>;
+  /** Money recoverable over the finding's window: spend above what its conversions were worth. */
   moneyAtStake?: number;
+  /** The window moneyAtStake covers, so it can be turned into a monthly figure. Defaults to 30. */
+  windowDays?: number;
+  area?: Area;
+  /** The rows behind the finding, for the collapsible table under a recommendation. */
+  table?: EvidenceTable;
   entityType?: string;
   entityId?: string;
 };
+
+/** What a finding is worth per month: its recoverable money over its window, scaled to 30.4 days. */
+export const monthlyImpact = (f: Finding) =>
+  f.moneyAtStake ? Math.max(0, f.moneyAtStake) / (f.windowDays ?? 30) * 30.4 : 0;
 
 // Volume gates. Below these, a ratio is noise dressed as a signal. They used to
 // be fixed amounts — 100 clicks, 50 of spend, 5 conversions — which were blind
@@ -54,6 +72,14 @@ export async function computeFindings(clientId: number): Promise<Finding[]> {
   // Google's own verdict on why a bid strategy is constrained, plus the volume
   // floors below which any target-related judgement is noise.
   out.push(...(await biddingHealthFindings(clientId)));
+  // The findings that turn directly into an action, and the ones that need
+  // Analytics, Search Console or Tag Manager alongside Ads.
+  out.push(...(await actionableFindings(clientId)));
+
+  for (const f of out) {
+    f.area ??= areaOf(f.kind);
+    f.windowDays ??= WINDOW_BY_KIND.find(([re]) => re.test(f.kind))?.[1] ?? 30;
+  }
 
   return out.sort((a, b) => {
     const rank = { critical: 0, warning: 1, info: 2 };
@@ -61,6 +87,25 @@ export async function computeFindings(clientId: number): Promise<Finding[]> {
     return (b.moneyAtStake ?? 0) - (a.moneyAtStake ?? 0);
   });
 }
+
+// Which part of the account a finding is about, so recommendations can be
+// grouped the way an operator thinks: tracking first, then waste, then the rest.
+const AREA_RULES: [RegExp, Area][] = [
+  [/^(conversion_|micro_conversion|tracking_|gtm_|auto_tagging|call_reporting|ads_tracking|value_bidding|conversion_value)/, "tracking"],
+  [/^(search_term_waste|keyword_spenders|device_no_conversions|network_no_conversions|placement_|campaign_no_conversions)/, "waste"],
+  [/^(hours_|day_of_week)/, "schedule"],
+  [/^(budget_|underfunded|campaign_overpriced|performance_inflection|cpa_|roas_)/, "budget"],
+  [/^(target_below|bid_|bidding_|ai_max|keywords_overpriced|device_inefficient|network_inefficient)/, "bidding"],
+  [/^(searches_to_promote|search_console|paid_organic)/, "opportunity"],
+  [/^(ads_thin|landing_page|keyword_low_quality)/, "creative"],
+];
+const areaOf = (kind: string): Area => AREA_RULES.find(([re]) => re.test(kind))?.[1] ?? "structure";
+
+// The window each finding's money covers. Segment, keyword and search-term
+// findings read 90 days; campaign totals read 30.
+const WINDOW_BY_KIND: [RegExp, number][] = [
+  [/^(device_|hours_|day_of_week|network_|keyword|search_term|placement_|keywords_|searches_|campaign_overpriced|budget_capped|landing_page)/, 90],
+];
 
 // --------------------------------------------------------------- budget ----
 
@@ -149,8 +194,11 @@ async function wasteFindings(clientId: number, client: ClientWithProps): Promise
   const looks = terms.length;
   const needed = zeroConversionMultiple(looks);
 
+  // Brand searches are never waste: they are the cheapest traffic in most
+  // accounts, and excluding them cannot be undone by spending more.
+  const brands = await brandTerms(clientId);
   const zero = terms
-    .filter((t) => Number(t.conversions) === 0)
+    .filter((t) => Number(t.conversions) === 0 && !containsBrand(t.term, brands))
     .map((t) => ({ term: t.term, cost: fromMicros(t.cost_micros), clicks: Number(t.clicks) }))
     .filter((t) => t.cost >= base.cpa! * 0.5)
     .sort((a, b) => b.cost - a.cost);

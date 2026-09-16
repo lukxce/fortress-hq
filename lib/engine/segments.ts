@@ -2,6 +2,7 @@ import { q } from "@/lib/db";
 import { fromMicros } from "./metrics";
 import type { Finding } from "./findings";
 import { testSegment, zeroConversionMultiple } from "./stats";
+import { brandTerms, containsBrand } from "./brand";
 
 // Where the money actually goes. Campaign totals say money left; these say
 // which device, which hour, which network, which keyword — the difference
@@ -70,6 +71,7 @@ const DOW_LABEL: Record<string, string> = {
 
 /** Findings that only exist because the account is segmented. */
 export async function segmentFindings(clientId: number): Promise<Finding[]> {
+  const brands = await brandTerms(clientId);
   const out: Finding[] = [];
   const [devices, hours, dow, networks, keywords] = await Promise.all([
     segment(clientId, "device"),
@@ -83,7 +85,12 @@ export async function segmentFindings(clientId: number): Promise<Finding[]> {
   out.push(...hourFindings(hours));
   out.push(...dowFindings(dow));
   out.push(...networkFindings(networks));
-  out.push(...keywordFindings(keywords));
+  // Brand keywords never count as spenders, whatever their numbers.
+  const unbranded = { ...keywords, spenders: keywords.spenders.filter((k: any) => !containsBrand(k.text, brands)),
+    proven: keywords.proven.filter((k: any) => !containsBrand(k.text, brands)) };
+  unbranded.spenderSpend = unbranded.spenders.reduce((n: number, k: any) => n + k.spend, 0);
+  unbranded.provenSpend = unbranded.proven.reduce((n: number, k: any) => n + k.spend, 0);
+  out.push(...keywordFindings(unbranded));
 
   return out;
 }
