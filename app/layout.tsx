@@ -1,30 +1,27 @@
 import type { Metadata } from "next";
-import { GeistSans } from "geist/font/sans";
+import { Inter, Instrument_Sans } from "next/font/google";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
-import { Nav } from "@/components/Nav";
 import { identityConfigured } from "@/lib/user";
+
+const inter = Inter({ subsets: ["latin", "latin-ext"], variable: "--font-inter", display: "swap" });
+const instrument = Instrument_Sans({ subsets: ["latin", "latin-ext"], variable: "--font-instrument", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Fortress HQ",
-  description: "Advertising and analytics operations across Google Ads, Analytics, Search Console and Tag Manager.",
+  description: "What to change in your Google Ads accounts, with Analytics, Search Console and Tag Manager alongside.",
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const page = (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${instrument.variable} ${GeistMono.variable}`}>
       <body>
-        <div className="shell">
-          <Nav />
-          <main>{children}</main>
-        </div>
+        {children}
       </body>
     </html>
   );
 
-  // Clerk is only pulled in when it is actually configured. Wrapping
-  // unconditionally would drag its provider and scripts into every page of a
-  // deployment that has no identity provider and does not want one.
+  // Clerk is only pulled in when it is actually configured.
   if (!identityConfigured) return page;
   const { ClerkProvider } = await import("@clerk/nextjs");
   return <ClerkProvider>{page}</ClerkProvider>;
