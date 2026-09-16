@@ -23,6 +23,7 @@ import { q, q1 } from "@/lib/db";
 /** The categories worth offering. The enum has more; most are not web goals. */
 export const CATEGORIES = [
   { value: "SUBMIT_LEAD_FORM", label: "Lead form submitted", counting: "ONE_PER_CLICK" },
+  { value: "PHONE_CALL_LEAD", label: "Someone taps the phone number", counting: "ONE_PER_CLICK" },
   { value: "REQUEST_QUOTE", label: "Quote requested", counting: "ONE_PER_CLICK" },
   { value: "BOOK_APPOINTMENT", label: "Appointment booked", counting: "ONE_PER_CLICK" },
   { value: "CONTACT", label: "Contact (call or message)", counting: "ONE_PER_CLICK" },
@@ -36,7 +37,10 @@ export const CATEGORIES = [
 
 export type GoalTrigger =
   | { kind: "url"; match: "contains" | "equals" | "startsWith"; value: string }
-  | { kind: "event"; value: string };
+  | { kind: "event"; value: string }
+  // A tap or click on any tel: link. Counts taps, not calls — the only native
+  // phone signal in countries without Google forwarding numbers.
+  | { kind: "phone"; value?: string };
 
 export type GoalSpec = {
   name: string;
@@ -59,7 +63,12 @@ export type GoalResult = {
   conversionId: string | null;
   conversionLabel: string | null;
   eventSnippet: string | null;
-  gtm: { workspaceId: string; triggerId: string; tagId: string; containerId: string } | null;
+  gtm: {
+    workspaceId: string; triggerId: string; tagId: string; containerId: string;
+    linkerCreated: boolean; ga4TagId: string | null;
+  } | null;
+  /** A Tag Manager import file for the same tags, for review or for a container Fortress cannot write to. */
+  importFile: unknown | null;
   warnings: string[];
 };
 
@@ -114,6 +123,10 @@ export async function createGoal(clientId: number, spec: GoalSpec): Promise<Goal
     );
   }
 
+  const measurementId = client.ga4_property_id
+    ? await ga4MeasurementId(auth, client.ga4_property_id).catch(() => null)
+    : null;
+
   let gtm: GoalResult["gtm"] = null;
   if (spec.createGtmTag) {
     if (!client.gtm_container_id) {
@@ -121,9 +134,14 @@ export async function createGoal(clientId: number, spec: GoalSpec): Promise<Goal
     } else if (!snippet.conversionId || !snippet.label) {
       warnings.push("Skipped the Tag Manager tag because the conversion label is not available yet.");
     } else {
-      gtm = await createGtmTag(auth, client, spec, name, snippet.conversionId, snippet.label);
+      gtm = await createGtmTag(auth, client, spec, name, snippet.conversionId, snippet.label, measurementId);
     }
   }
+
+  const importFile = snippet.conversionId && snippet.label
+    ? gtmImportFile({ name, trigger: spec.trigger, value: spec.defaultValue ?? null,
+        conversionId: snippet.conversionId, label: snippet.label, measurementId })
+    : null;
 
   if (spec.isPrimary) {
     warnings.push(
@@ -160,6 +178,7 @@ export async function createGoal(clientId: number, spec: GoalSpec): Promise<Goal
     conversionLabel: snippet.label,
     eventSnippet: snippet.eventSnippet,
     gtm,
+    importFile,
     warnings,
   };
 }
@@ -274,7 +293,8 @@ async function createGtmTag(
   spec: GoalSpec,
   name: string,
   conversionId: string,
-  label: string
+  label: string,
+  measurementId: string | null
 ) {
   const gtm = google.tagmanager({ version: "v2", auth });
 
@@ -298,6 +318,16 @@ async function createGtmTag(
     ws.data.workspace?.find((w) => w.name === "Default Workspace") ?? ws.data.workspace?.[0];
   if (!workspace?.workspaceId) throw new Error("This container has no workspace to write into.");
   const wsPath = `${containerPath}/workspaces/${workspace.workspaceId}`;
+
+  // A click trigger reads {{Click URL}}, a built-in variable that is off in a
+  // new container. Enabling one that is already on is refused; that is fine.
+  if (spec.trigger.kind === "phone") {
+    await gtm.accounts.containers.workspaces.built_in_variables
+      .create({ parent: wsPath, type: ["clickUrl"] })
+      .catch(() => undefined);
+    await countOps("gtm", 1);
+    await gtmPace();
+  }
 
   const trigger = await gtm.accounts.containers.workspaces.triggers.create({
     parent: wsPath,
@@ -329,15 +359,170 @@ async function createGtmTag(
   await countOps("gtm", 1);
   await gtmPace();
 
+  // The conversion linker. Without it ad clicks lose their click identifier on
+  // cross-domain and Safari journeys, and conversions that happened never get
+  // attributed. Added only if the workspace has none.
+  const existing = await gtm.accounts.containers.workspaces.tags.list({ parent: wsPath });
+  await countOps("gtm", 1);
+  await gtmPace();
+  let linkerCreated = false;
+  if (!(existing.data.tag ?? []).some((t) => t.type === "gclidw")) {
+    await gtm.accounts.containers.workspaces.tags.create({
+      parent: wsPath,
+      requestBody: {
+        name: "Conversion Linker",
+        type: "gclidw",
+        parameter: [
+          { type: "boolean", key: "enableCrossDomain", value: "false" },
+          { type: "boolean", key: "enableUrlPassthrough", value: "false" },
+          { type: "boolean", key: "enableCookieOverrides", value: "false" },
+        ],
+        firingTriggerId: [ALL_PAGES],
+        notes: "Created by Fortress.",
+      },
+    });
+    await countOps("gtm", 1);
+    await gtmPace();
+    linkerCreated = true;
+  }
+
+  // The matching Analytics event, for analysis only. It is not what bidding
+  // reads — the Ads tag above is — so importing it into Ads as a second primary
+  // action would double-count.
+  let ga4TagId: string | null = null;
+  if (measurementId) {
+    const ga4 = await gtm.accounts.containers.workspaces.tags.create({
+      parent: wsPath,
+      requestBody: {
+        name: `GA4 event — ${name}`,
+        type: "gaawe",
+        parameter: [
+          { type: "template", key: "eventName", value: eventName(name) },
+          { type: "template", key: "measurementIdOverride", value: measurementId },
+        ],
+        firingTriggerId: [String(trigger.data.triggerId)],
+        notes: "Created by Fortress. For Analytics reporting — do not import into Google Ads as a second primary action.",
+      },
+    }).catch(() => null);
+    await countOps("gtm", 1);
+    ga4TagId = ga4?.data.tagId ? String(ga4.data.tagId) : null;
+  }
+
   return {
     containerId: inv.provider_id,
     workspaceId: String(workspace.workspaceId),
     triggerId: String(trigger.data.triggerId),
     tagId: String(tag.data.tagId),
+    linkerCreated,
+    ga4TagId,
   };
 }
 
+/** Tag Manager's built-in "All Pages" trigger. */
+const ALL_PAGES = "2147479553";
+
+/** A GA4-safe event name: lowercase, underscores, 40 characters. */
+export function eventName(name: string): string {
+  const base = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return (/^[a-z]/.test(base) ? base : `goal_${base}`).slice(0, 40) || "fortress_goal";
+}
+
+/** The web stream measurement ID (G-…) for a GA4 property. */
+export async function ga4MeasurementId(auth: OAuth2Client, propertyId: string): Promise<string | null> {
+  const admin = google.analyticsadmin({ version: "v1beta", auth });
+  const res = await admin.properties.dataStreams.list({ parent: `properties/${digits(propertyId)}` });
+  await countOps("ga4", 1);
+  const web = (res.data.dataStreams ?? []).find((s) => s.type === "WEB_DATA_STREAM");
+  return web?.webStreamData?.measurementId ?? null;
+}
+
+/**
+ * A Tag Manager container import file holding the same tags: the Ads
+ * conversion tag, the conversion linker, the GA4 event and the trigger. Import
+ * it with "Merge" so nothing existing is overwritten, and every tag can be
+ * reviewed before it goes live.
+ */
+export function gtmImportFile(o: {
+  name: string; trigger: GoalTrigger; value: number | null;
+  conversionId: string; label: string; measurementId: string | null;
+}) {
+  const ids = { account: "0", container: "0" };
+  const base = { accountId: ids.account, containerId: ids.container };
+  const trig = { ...base, triggerId: "1", ...triggerBody(o.trigger, o.name) };
+  const tags: any[] = [
+    {
+      ...base, tagId: "1", name: `Google Ads — ${o.name}`, type: "awct",
+      parameter: [
+        { type: "TEMPLATE", key: "conversionId", value: o.conversionId.replace(/^AW-/, "") },
+        { type: "TEMPLATE", key: "conversionLabel", value: o.label },
+        ...(o.value != null ? [{ type: "TEMPLATE", key: "conversionValue", value: String(o.value) }] : []),
+      ],
+      firingTriggerId: ["1"], tagFiringOption: "ONCE_PER_EVENT",
+    },
+    {
+      ...base, tagId: "2", name: "Conversion Linker", type: "gclidw",
+      parameter: [
+        { type: "BOOLEAN", key: "enableCrossDomain", value: "false" },
+        { type: "BOOLEAN", key: "enableUrlPassthrough", value: "false" },
+        { type: "BOOLEAN", key: "enableCookieOverrides", value: "false" },
+      ],
+      firingTriggerId: [ALL_PAGES], tagFiringOption: "ONCE_PER_EVENT",
+    },
+  ];
+  if (o.measurementId) {
+    tags.push({
+      ...base, tagId: "3", name: `GA4 event — ${o.name}`, type: "gaawe",
+      parameter: [
+        { type: "TEMPLATE", key: "eventName", value: eventName(o.name) },
+        { type: "TEMPLATE", key: "measurementIdOverride", value: o.measurementId },
+      ],
+      firingTriggerId: ["1"], tagFiringOption: "ONCE_PER_EVENT",
+    });
+  }
+  const builtIn = [
+    { ...base, type: "PAGE_URL", name: "Page URL" },
+    { ...base, type: "EVENT", name: "Event" },
+    ...(o.trigger.kind === "phone" ? [{ ...base, type: "CLICK_URL", name: "Click URL" }] : []),
+  ];
+  return {
+    exportFormatVersion: 2,
+    exportTime: new Date().toISOString().replace("T", " ").slice(0, 19),
+    containerVersion: {
+      path: "accounts/0/containers/0/versions/0", ...base, containerVersionId: "0",
+      container: { path: "accounts/0/containers/0", ...base, name: "Fortress import", usageContext: ["WEB"] },
+      tag: tags, trigger: [upper(trig)], builtInVariable: builtIn,
+    },
+  };
+}
+
+/** The import format spells parameter types in capitals. */
+function upper(t: any): any {
+  const fix = (ps: any[]) => ps.map((x) => ({ ...x, type: String(x.type).toUpperCase() }));
+  const out = { ...t, type: String(t.type).toUpperCase().replace("CUSTOMEVENT", "CUSTOM_EVENT").replace("LINKCLICK", "LINK_CLICK") };
+  for (const k of ["filter", "customEventFilter"]) if (out[k]) out[k] = out[k].map((f: any) => ({ ...f, type: camelToUpper(f.type), parameter: fix(f.parameter) }));
+  return out;
+}
+const camelToUpper = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase();
+
 function triggerBody(trigger: GoalTrigger, name: string) {
+  if (trigger.kind === "phone") {
+    return {
+      name: `Fortress — ${name} (phone tap)`,
+      type: "linkClick",
+      waitForTags: { type: "boolean", key: "waitForTags", value: "false" },
+      checkValidation: { type: "boolean", key: "checkValidation", value: "false" },
+      filter: [
+        {
+          type: "startsWith",
+          parameter: [
+            { type: "template", key: "arg0", value: "{{Click URL}}" },
+            { type: "template", key: "arg1", value: "tel:" },
+          ],
+        },
+      ],
+    };
+  }
   if (trigger.kind === "event") {
     return {
       name: `Fortress — ${name} (event)`,
