@@ -6,10 +6,13 @@ import type { Finding } from "./findings";
 // These replace guesswork with the platform's own verdict, and they are free:
 // every field is already on a query the sync runs.
 
-// Two different floors, routinely conflated. Fifteen a month is what Google
-// *permits*; around fifty is what makes the result *trustworthy*. Below thirty,
-// measured target attainment on Performance Max swings between −100% and +400%,
-// so any judgement about whether a target is met is noise.
+// Two different floors, routinely conflated. Fifteen conversions in 30 days,
+// account-wide, is what Google requires to *permit* Target ROAS; a window holding
+// at least 30 is Google's own guidance for *evaluating* a target. Retail data
+// from Smarter Ecommerce says even that is generous — at 60–90 a month hitting
+// target is still a coin flip — so below 30 a verdict on target attainment is
+// noise. (The oft-quoted −100%..+400% swing is one segmented retail account, not
+// a large dataset; it illustrates the problem rather than measuring it.)
 const FLOOR_PERMITTED = 15;
 const FLOOR_TRUSTWORTHY = 30;
 
@@ -19,7 +22,7 @@ const STATUS_MEANING: Record<string, { severity: Finding["severity"]; title: str
     severity: "warning",
     title: "Not enough conversions for the bid strategy to learn",
     detail:
-      "Google reports this strategy has had too little conversion traffic in recent weeks. Smart Bidding cannot converge on a target it has no evidence for, so it behaves unpredictably rather than badly. Either consolidate campaigns so the signal pools, or move to a strategy that does not need conversion volume.",
+      "Google reports this strategy has had too little conversion traffic in recent weeks. Smart Bidding cannot converge on a target it has no evidence for, so it behaves unpredictably rather than badly. Consolidate campaigns (or, on Performance Max, asset groups) so the signal pools, or remove the target until volume supports one.",
   },
   LIMITED_BY_LOW_QUALITY: {
     severity: "warning",
@@ -60,7 +63,7 @@ const STATUS_MEANING: Record<string, { severity: Finding["severity"]; title: str
 
 export async function biddingHealthFindings(clientId: number): Promise<Finding[]> {
   const rows = await q<any>(`
-    SELECT c.name, c.campaign_id, c.bidding_strategy, c.bid_strategy_status,
+    SELECT c.name, c.campaign_id, c.bidding_strategy, c.bid_strategy_status, c.channel_type,
            c.avg_target_cpa_micros, c.avg_target_roas,
            c.budget_micros, c.recommended_budget_micros,
            COALESCE(SUM(m.cost_micros),0) AS spend,
@@ -70,7 +73,7 @@ export async function biddingHealthFindings(clientId: number): Promise<Finding[]
         ON m.entity_id = c.campaign_id AND m.entity_type = 'campaign'
        AND m.date > CURRENT_DATE - 31 AND m.date <= CURRENT_DATE - 1
      WHERE c.client_id = $1 AND c.status = 'ENABLED'
-     GROUP BY c.name, c.campaign_id, c.bidding_strategy, c.bid_strategy_status,
+     GROUP BY c.name, c.campaign_id, c.bidding_strategy, c.bid_strategy_status, c.channel_type,
               c.avg_target_cpa_micros, c.avg_target_roas,
               c.budget_micros, c.recommended_budget_micros
   `, [clientId]);
@@ -104,12 +107,19 @@ export async function biddingHealthFindings(clientId: number): Promise<Finding[]
     // every default report.
     if (hasTarget && spend >= 40 && conversions < FLOOR_TRUSTWORTHY) {
       const belowPermitted = conversions < FLOOR_PERMITTED;
+      // Performance Max only supports Maximise Conversions and Maximise
+      // Conversion Value. Recommending a clicks strategy there is advice the
+      // operator cannot follow, and it makes the whole briefing look careless.
+      const isPmax = r.channel_type === "PERFORMANCE_MAX";
+      const remedy = isPmax
+        ? "remove the target and leave the campaign on plain maximising conversions, or merge asset groups and campaigns so the signal pools, until volume supports a target."
+        : "consolidate campaigns so the signal pools, or remove the target and use maximising conversions without one (or a click-based strategy with a cost ceiling) until volume supports a target.";
       out.push({
         kind: "target_below_volume_floor",
         severity: belowPermitted ? "warning" : "info",
         title: `${r.name} has a ${targetCpa ? "cost" : "return"} target but only ${conversions.toFixed(0)} conversions a month`,
         detail: belowPermitted
-          ? `A target needs roughly 30 conversions a month before the algorithm can converge on it, and around 15 before conversion-based bidding works at all. At ${conversions.toFixed(0)} the target is an instruction the strategy cannot satisfy, so it behaves unpredictably rather than efficiently. Either consolidate campaigns so the signal pools, or drop to maximising clicks with a cost ceiling until volume supports a target.`
+          ? `A target needs roughly 30 conversions a month before the algorithm can converge on it, and around 15 before conversion-based bidding works at all. At ${conversions.toFixed(0)} the target has almost nothing to calibrate against — Google will not even suggest a target below 7 conversions — so expect erratic delivery. The options are to ${remedy}`
           : `Between 15 and 30 conversions a month, a target works but its results are not yet trustworthy — measured attainment swings widely at this volume. Treat this campaign's cost per conversion as indicative rather than as evidence.`,
         evidence: {
           conversions, spend,
@@ -149,9 +159,9 @@ export async function biddingHealthFindings(clientId: number): Promise<Finding[]
       const needed = cpaBasis * 3;
       out.push({
         kind: "budget_below_3x_cpa",
-        severity: "warning",
+        severity: "info",
         title: `${r.name} runs on a daily budget under three times its cost per conversion`,
-        detail: `The budget is ${budget.toFixed(0)} a day against a ${targetCpa ? "target" : "current"} cost per conversion of ${cpaBasis.toFixed(2)}, so roughly ${(budget / cpaBasis).toFixed(1)} conversions a day at best. Google's own documentation asks for at least three times the cost per conversion — about ${needed.toFixed(0)} here — and warns that a budget below it produces a slower ramp and fewer conversions. Note this is Google's suggestion with no dataset published behind it, not a measured threshold; treat it as a reason to check the budget rather than a defect in itself.`,
+        detail: `The budget is ${budget.toFixed(0)} a day against a ${targetCpa ? "target" : "current"} cost per conversion of ${cpaBasis.toFixed(2)}, so roughly ${(budget / cpaBasis).toFixed(1)} conversions a day at best. Google's documentation suggests at least three times the cost per conversion — about ${needed.toFixed(0)} a day here — and says a budget below it means a slower ramp and fewer conversions. It is a suggestion with no published data behind it, and on a small local account often more than the whole budget can carry. Read it as the reason learning will be slow at this budget, not as a case for spending more.`,
         evidence: { budget, cpa: cpaBasis, needed, multiple: budget / cpaBasis, targetSet: Boolean(targetCpa) },
         entityType: "campaign",
         entityId: r.campaign_id,
@@ -225,7 +235,9 @@ async function valueBiddingFindings(clientId: number): Promise<Finding[]> {
 /**
  * AI Max migration state.
  *
- * Migration is happening through September 2026 with no opt-out, and the two
+ * Campaigns still on campaign-level broad match or automatically created assets
+ * are being upgraded through September 2026 (AI Max can be switched off
+ * afterwards, with side effects), and the two
  * source cohorts land with different defaults — so an account contains a mix
  * and cannot be judged uniformly. The finding that earns its place here is the
  * ratchet: once a campaign has used AI Max, switching it off also disables

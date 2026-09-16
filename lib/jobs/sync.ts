@@ -258,6 +258,13 @@ async function syncSearchTerms(auth: OAuth2Client, c: ClientWithProps): Promise<
     //
     // Hard constraint: adding any segments.keyword.* field to this query makes
     // Google silently drop every Performance Max row, with no error.
+    //
+    // The channel filter is not optional. This view covers Search campaigns as
+    // well as Performance Max, and those Search rows are already in from
+    // search_term_view above — both land on the same campaign|term key and get
+    // summed, so without the filter every Search campaign's impressions, clicks,
+    // cost and conversions were counted twice. The filter is a campaign
+    // attribute, not a keyword segment, so PMax rows survive it.
     const pmax = await searchStream(auth, cid, `
       SELECT campaign_search_term_view.search_term, campaign.id,
              segments.search_term_match_source,
@@ -265,6 +272,7 @@ async function syncSearchTerms(auth: OAuth2Client, c: ClientWithProps): Promise<
              metrics.conversions
         FROM campaign_search_term_view
        WHERE segments.date BETWEEN '${isoDaysAgo(SEARCH_TERM_DAYS)}' AND '${isoDaysAgo(0)}'
+         AND campaign.advertising_channel_type = 'PERFORMANCE_MAX'
     `);
     for (const r of pmax) {
       rows.push({

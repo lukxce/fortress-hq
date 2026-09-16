@@ -17,15 +17,19 @@ import type { ClientWithProps } from "@/lib/binding";
 const WINDOW = 90;
 const isoDaysAgo = (n: number) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
 
-// Channel-level data does not exist before this date at any API version, and a
-// window reaching further back returns no breakdown rather than an error — so
-// it under-reports silently. Clamp instead.
+// Channel-level data does not exist before this date at any API version.
+// Earlier dates come back as one MIXED cross-network row rather than an error:
+// totals survive, but every real channel reads as zero for that stretch, which
+// would look like a channel collapsing. So the network breakdown is clamped —
+// and only the network breakdown. Device, hour, geography and the rest have
+// full history, and clamping them would silently cut it the moment the window
+// is widened for a low-volume client.
 const CHANNEL_DATA_FLOOR = "2025-06-01";
-const fromDate = (n: number) => {
-  const d = isoDaysAgo(n);
-  return d < CHANNEL_DATA_FLOOR ? CHANNEL_DATA_FLOOR : d;
+const range = (opts: { channel?: boolean } = {}) => {
+  let from = isoDaysAgo(WINDOW);
+  if (opts.channel && from < CHANNEL_DATA_FLOOR) from = CHANNEL_DATA_FLOOR;
+  return `segments.date BETWEEN '${from}' AND '${isoDaysAgo(1)}'`;
 };
-const range = () => `segments.date BETWEEN '${fromDate(WINDOW)}' AND '${isoDaysAgo(1)}'`;
 const num = (v: unknown) => Number(v ?? 0);
 
 type Seg = {
@@ -112,7 +116,7 @@ export async function syncSegments(
      `SELECT campaign.id, segments.day_of_week, ${METRICS} FROM campaign WHERE ${range()}`,
      (r) => r.segments?.dayOfWeek ?? null],
     ["network",
-     `SELECT campaign.id, segments.ad_network_type, ${METRICS} FROM campaign WHERE ${range()}`,
+     `SELECT campaign.id, segments.ad_network_type, ${METRICS} FROM campaign WHERE ${range({ channel: true })}`,
      (r) => r.segments?.adNetworkType ?? null],
   ];
 

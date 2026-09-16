@@ -53,10 +53,12 @@ const DEVICE_LABEL: Record<string, string> = {
   CONNECTED_TV: "connected TV", OTHER: "other devices",
 };
 
+// The v25 AdNetworkType values. For Performance Max, SEARCH includes Shopping.
 const NETWORK_LABEL: Record<string, string> = {
   SEARCH: "Google search", SEARCH_PARTNERS: "search partners",
   CONTENT: "the display network", YOUTUBE: "YouTube",
-  YOUTUBE_SEARCH: "YouTube search", YOUTUBE_WATCH: "YouTube watch",
+  GMAIL: "Gmail", DISCOVER: "Discover", MAPS: "Google Maps",
+  GOOGLE_TV: "Google TV", GOOGLE_OWNED_CHANNELS: "Google-owned channels",
   MIXED: "mixed placements",
 };
 
@@ -286,7 +288,9 @@ function networkFindings(rows: SegmentRow[]): Finding[] {
         kind: "network_no_conversions",
         severity: "warning",
         title: `${r.spend.toFixed(0)} went to ${label} with no conversions`,
-        detail: `${r.clicks} clicks and nothing to show, on ${r.share.toFixed(0)}% of spend. ${r.key === "SEARCH_PARTNERS" ? "Search partners can be turned off per campaign without touching anything else." : "This placement can be excluded."}`,
+        // Performance Max cannot switch off Search Partners or Display (a closed
+        // alpha only), so the remedy offered has to hold for both campaign types.
+        detail: `${r.clicks} clicks and nothing to show, on ${r.share.toFixed(0)}% of spend. ${r.key === "SEARCH_PARTNERS" ? "On a Search campaign, search partners can be turned off without touching anything else. Performance Max has no such switch for most advertisers." : "Individual placements can be excluded at account level, which also reaches Performance Max; the channel as a whole cannot be switched off in Performance Max."}`,
         evidence: { network: r.key, spend: r.spend, clicks: r.clicks, share: r.share },
         moneyAtStake: r.spend,
       });
