@@ -141,6 +141,7 @@ export async function biddingHealthFindings(clientId: number): Promise<Finding[]
   }
 
   out.push(...(await valueBiddingFindings(clientId)));
+  out.push(...(await aiMaxFindings(clientId)));
   return out;
 }
 
@@ -196,6 +197,101 @@ async function valueBiddingFindings(clientId: number): Promise<Finding[]> {
       title: `Reported conversion value is ${inflation.toFixed(0)}% above the raw figure`,
       detail: `Value rules or new-customer adjustments are adding ${(adjusted - original).toFixed(0)} on top of ${original.toFixed(0)} of actual recorded value. That is deliberate and it does feed bidding, but it means the value column is no longer revenue. Any return figure quoted from it is not a revenue multiple.`,
       evidence: { adjustedValue: adjusted, originalValue: original, inflationPct: inflation },
+    });
+  }
+
+  return out;
+}
+
+/**
+ * AI Max migration state.
+ *
+ * Migration is happening through September 2026 with no opt-out, and the two
+ * source cohorts land with different defaults — so an account contains a mix
+ * and cannot be judged uniformly. The finding that earns its place here is the
+ * ratchet: once a campaign has used AI Max, switching it off also disables
+ * brand inclusions and exclusions, which means the obvious remediation removes
+ * the guardrails rather than the feature.
+ */
+export async function aiMaxFindings(clientId: number): Promise<Finding[]> {
+  const rows = await q<any>(`
+    SELECT c.name, c.campaign_id, c.channel_type, c.status,
+           c.ai_max_enabled, c.ai_max_bundling_required,
+           c.aca_migrated_at, c.broad_match_migrated_at,
+           COALESCE(SUM(m.cost_micros),0) AS spend,
+           COALESCE(SUM(m.conversions),0) AS conversions
+      FROM campaigns c
+      LEFT JOIN metrics_daily m
+        ON m.entity_id = c.campaign_id AND m.entity_type = 'campaign'
+       AND m.date > CURRENT_DATE - 31 AND m.date <= CURRENT_DATE - 1
+     WHERE c.client_id = $1 AND c.channel_type = 'SEARCH'
+     GROUP BY c.name, c.campaign_id, c.channel_type, c.status,
+              c.ai_max_enabled, c.ai_max_bundling_required,
+              c.aca_migrated_at, c.broad_match_migrated_at
+  `, [clientId]);
+
+  const migrated = rows.filter((r) => r.aca_migrated_at || r.broad_match_migrated_at);
+  const active = rows.filter((r) => r.ai_max_enabled === true && r.status === 'ENABLED');
+  if (!migrated.length && !active.length) return [];
+
+  const out: Finding[] = [];
+
+  if (migrated.length) {
+    // The cohort determines which features arrived switched on, so it decides
+    // what to check first. Text customisation only comes with one of them.
+    const aca = migrated.filter((r) => r.aca_migrated_at);
+    const broad = migrated.filter((r) => r.broad_match_migrated_at);
+    out.push({
+      kind: "ai_max_migrated",
+      severity: "info",
+      title: `${migrated.length} search campaign${migrated.length === 1 ? " was" : "s were"} migrated to AI Max`,
+      detail:
+        (aca.length
+          ? `${aca.length} came from automatically created assets, which arrive with both search term matching and text customisation switched on — Google is now generating ad copy for ${aca.length === 1 ? "it" : "them"}. `
+          : "") +
+        (broad.length
+          ? `${broad.length} came from campaign-level broad match, which arrives with search term matching only. `
+          : "") +
+        `Check the generated assets and the search terms report segmented by source. Keywords now act as hints rather than constraints on anything but a literally identical query, and roughly a third of what still reports as exact match is AI Max expansion.`,
+      evidence: {
+        acaCohort: aca.map((r) => r.name),
+        broadMatchCohort: broad.map((r) => r.name),
+      },
+    });
+  }
+
+  const ratcheted = active.filter((r) => r.ai_max_bundling_required === true);
+  if (ratcheted.length) {
+    out.push({
+      kind: "ai_max_bundling_ratchet",
+      severity: "warning",
+      title: "Turning AI Max off on these campaigns would also disable their brand controls",
+      detail: `${ratcheted.map((r) => `"${r.name}"`).join(", ")} ${ratcheted.length === 1 ? "has" : "have"} used AI Max, which permanently ties brand inclusions and exclusions to it being enabled. Switching the master toggle off removes those guardrails and causes URL inclusions and exclusions to be ignored — the opposite of what switching it off is meant to achieve. To contain it, leave the toggle on and disable search term matching per ad group instead.`,
+      evidence: { campaigns: ratcheted.map((r) => r.name) },
+    });
+  }
+
+  // Below the volume floor AI Max behaves erratically, and Google states it is
+  // ineffective on a budget-limited campaign because it spends what is left
+  // after keywords serve. On a small local account the realistic outcome is
+  // that it barely participates rather than that it does damage.
+  const thin = active.filter(
+    (r) => fromMicros(r.spend) > 0 && Number(r.conversions) < FLOOR_TRUSTWORTHY
+  );
+  if (thin.length) {
+    out.push({
+      kind: "ai_max_below_volume_floor",
+      severity: "info",
+      title: "AI Max is running on campaigns with too little volume to use it",
+      detail: `Below roughly 30 conversions a month AI Max behaves erratically, and Google states it is ineffective on a budget-limited campaign because it only spends what is left after existing keywords serve. On a small account the usual outcome is that it takes a trivial share of spend rather than that it causes harm — one documented fourteen-month test saw it take $158 of $10,457. Watch what share of spend it actually takes before doing anything drastic.`,
+      evidence: {
+        campaigns: thin.map((r) => ({
+          campaign: r.name,
+          spend: fromMicros(r.spend),
+          conversions: Number(r.conversions),
+        })),
+        floor: FLOOR_TRUSTWORTHY,
+      },
     });
   }
 

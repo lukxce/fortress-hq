@@ -105,6 +105,10 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
            campaign.primary_status,
            campaign.primary_status_reasons,
            campaign.bidding_strategy_system_status,
+           campaign.ai_max_setting.enable_ai_max,
+           campaign.ai_max_setting.bundling_required,
+           campaign.aca_migration_date_time,
+           campaign.broad_match_migration_date_time,
            metrics.average_target_cpa_micros,
            metrics.average_target_roas,
            campaign_budget.recommended_budget_amount_micros,
@@ -132,8 +136,10 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
             channel_type, bidding_strategy, target_cpa_micros, target_roas,
             budget_micros, budget_shared, primary_status, primary_status_reasons,
             start_date, end_date, bid_strategy_status, avg_target_cpa_micros,
-            avg_target_roas, recommended_budget_micros, last_synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19, now())
+            avg_target_roas, recommended_budget_micros, ai_max_enabled,
+            ai_max_bundling_required, aca_migrated_at, broad_match_migrated_at,
+            last_synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23, now())
          ON CONFLICT (ads_customer_id, campaign_id) DO UPDATE SET
            client_id = EXCLUDED.client_id, name = EXCLUDED.name,
            status = EXCLUDED.status, channel_type = EXCLUDED.channel_type,
@@ -149,6 +155,10 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
            avg_target_cpa_micros = EXCLUDED.avg_target_cpa_micros,
            avg_target_roas = EXCLUDED.avg_target_roas,
            recommended_budget_micros = EXCLUDED.recommended_budget_micros,
+           ai_max_enabled = EXCLUDED.ai_max_enabled,
+           ai_max_bundling_required = EXCLUDED.ai_max_bundling_required,
+           aca_migrated_at = EXCLUDED.aca_migrated_at,
+           broad_match_migrated_at = EXCLUDED.broad_match_migrated_at,
            last_synced_at = now()`,
         [
           c.id, cid, String(camp.id), camp.name ?? "", camp.status ?? null,
@@ -165,6 +175,10 @@ async function syncCampaigns(auth: OAuth2Client, c: ClientWithProps): Promise<nu
           r.metrics?.averageTargetCpaMicros ? String(r.metrics.averageTargetCpaMicros) : null,
           r.metrics?.averageTargetRoas ?? null,
           budget.recommendedBudgetAmountMicros ? String(budget.recommendedBudgetAmountMicros) : null,
+          camp.aiMaxSetting?.enableAiMax ?? null,
+          camp.aiMaxSetting?.bundlingRequired ?? null,
+          camp.acaMigrationDateTime ?? null,
+          camp.broadMatchMigrationDateTime ?? null,
         ]
       );
     }
