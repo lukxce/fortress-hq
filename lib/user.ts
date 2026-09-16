@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { q1 } from "@/lib/db";
 
 /**
@@ -27,7 +28,33 @@ export type AppUser = {
   email: string | null;
   name: string | null;
   role: "owner" | "member" | "viewer";
+  /** Set when an admin is viewing the app as this person. Everything is read-only then. */
+  viewedBy?: { id: number; email: string | null };
 };
+
+// ------------------------------------------------------------------ view as --
+
+export const VIEW_AS_COOKIE = "fortress_view_as";
+
+/** The cookie is bound to the admin who set it: copied to another browser it means nothing. */
+export function viewAsToken(adminId: number, userId: number): string {
+  const key = process.env.ENCRYPTION_KEY?.trim() ?? "";
+  return `${userId}.${createHmac("sha256", key).update(`view-as:${adminId}:${userId}`).digest("base64url")}`;
+}
+
+async function viewingAs(real: AppUser): Promise<AppUser | null> {
+  if (real.role !== "owner") return null;
+  const { cookies } = await import("next/headers");
+  const raw = (await cookies()).get(VIEW_AS_COOKIE)?.value;
+  if (!raw) return null;
+  const userId = Number(raw.split(".")[0]);
+  if (!Number.isInteger(userId) || userId === real.id) return null;
+  const expected = Buffer.from(viewAsToken(real.id, userId));
+  const given = Buffer.from(raw);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  const target = await q1<AppUser>(`SELECT id, email, name, role FROM users WHERE id = $1`, [userId]);
+  return target ? { ...target, viewedBy: { id: real.id, email: real.email } } : null;
+}
 
 /**
  * Null has a specific meaning: this installation has no users at all, which is
@@ -36,6 +63,13 @@ export type AppUser = {
  * its own empty state and connect something.
  */
 export async function currentUser(): Promise<AppUser | null> {
+  const real = await realUser();
+  if (!real) return null;
+  return (await viewingAs(real).catch(() => null)) ?? real;
+}
+
+/** The person actually signed in, ignoring "view as". Admin checks use this. */
+export async function realUser(): Promise<AppUser | null> {
   if (identityConfigured) {
     const { auth } = await import("@clerk/nextjs/server");
     const { userId } = await auth();
@@ -138,7 +172,7 @@ export const isAdmin = (u: AppUser | null) => u?.role === "owner";
 
 /** For admin-only pages: 404 for everyone else, so the page is not even known to exist. */
 export async function requireAdmin(): Promise<AppUser> {
-  const u = await currentUser();
+  const u = await realUser();
   if (!isAdmin(u)) {
     const { notFound } = await import("next/navigation");
     notFound();

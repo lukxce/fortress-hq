@@ -32,7 +32,7 @@ export function Users({ users, projects, shares, me }: { users: User[]; projects
         <div className="card-head"><h2>People</h2><span className="meta">Each person signs in separately and connects their own Google account.</span></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Person</th><th>Role</th><th className="r">Own projects</th><th>Shared with them</th><th>Last seen</th></tr></thead>
+            <thead><tr><th>Person</th><th>Role</th><th className="r">Own projects</th><th>Shared with them</th><th>Last seen</th><th></th></tr></thead>
             <tbody>
               {users.map((u) => (
                 <tr key={u.id}>
@@ -56,6 +56,14 @@ export function Users({ users, projects, shares, me }: { users: User[]; projects
                     </div>
                   </td>
                   <td className="meta">{u.last_seen_at ? new Date(u.last_seen_at).toLocaleDateString("en-GB") : "never"}</td>
+                  <td>{u.id !== me && (
+                    <button className="btn btn-sm" disabled={busy} onClick={async () => {
+                      setBusy(true);
+                      const res = await fetch("/api/admin/view-as", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: u.id }) });
+                      if (res.ok) { window.location.href = "/overview"; return; }
+                      setBusy(false); setError("Could not switch.");
+                    }}>View as</button>
+                  )}</td>
                 </tr>
               ))}
             </tbody>
