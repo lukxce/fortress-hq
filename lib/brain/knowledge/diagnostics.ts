@@ -2,7 +2,12 @@
  * Diagnostic reasoning: how to get from a metric pattern to a cause.
  *
  * Distilled from published practitioner methodology (Optmyzr multi-account
- * studies, Search Engine Land named authors, PPC Mastery, ZATO, Adalysis).
+ * studies, Search Engine Land named authors, PPC Mastery, ZATO, Adalysis), then
+ * fact-checked claim by claim against Google's own help pages on 2026-09-16.
+ * That pass removed two figures with no traceable origin (a "72 hour"
+ * reallocation window and a €30,000 underspend case), corrected a rule Google
+ * explicitly contradicts (target changes do not restart learning), and rescoped
+ * several signatures that misfire on low-volume accounts.
  * Every entry is a mechanism or a detection pattern. Nothing here is advice.
  */
 export const DIAGNOSTICS = `
@@ -11,15 +16,17 @@ export const DIAGNOSTICS = `
 ### Order matters, and the reason for the order is itself an insight
 
 Measurement first, always. Not for tidiness — because conversion data is now a
-**control input**, not a report. Smart Bidding reads it and reallocates budget
-within about 72 hours, long before anyone reviews a dashboard. An account with
+**control input**, not a report. Smart Bidding sets every auction's bid from it,
+reacts to changes within minutes, and recalibrates over roughly one to three
+conversion cycles, long before anyone reviews a dashboard. An account with
 broken tracking is not mismeasured, it is actively being mis-steered.
 
 The dependency chain, and why each link precedes the next:
 
 1. **Measurement validity.** Broken tracking invalidates every number below it.
-2. **Signal composition** — what is in the Conversions column. The algorithm's
-   inputs determine what there is to measure.
+2. **Signal composition** — which actions are *primary* and therefore in the
+   Conversions column. Only those steer bidding; secondary actions sit in All
+   conversions and do not.
 3. **Brand versus non-brand separation.** A target set against a blended figure
    is a target against a number corresponding to no real acquisition economics.
 4. **Structure.** Determines budget routing and auction eligibility.
@@ -51,53 +58,68 @@ errors. When you spot one, say which kind it is.
 
 | What you see | What to suspect |
 |---|---|
-| Falling cost per conversion **and** rising return **and** flat or falling actual revenue | Signal corruption, not improvement. The system is doing exactly what it was told |
+| Falling cost per conversion **and** rising return **and** flat or falling actual revenue | Signal corruption, or a counting change (attribution model switch, modelled conversions) — not improvement |
 | Conversion rate implausibly high for the vertical | A micro-conversion sitting in the primary column |
-| Cost per conversion doubled in the last week | Check conversion lag before concluding anything. You may be reading spend against conversions that have not arrived |
-| Conversion count halves or doubles overnight with no campaign change | A tag, goal or consent change — not performance |
-| One conversion action is 80%+ of volume and is not the money action | That action is the pollutant, and the account is optimising toward it |
-| Impressions down sharply but impression share stable | Demand fell, not the account |
-| Impression share lost to rank rising while lost to budget is flat | Competitive pressure, not budget |
+| Cost per conversion doubled in the last week | Check conversion lag first, then sample size. You may be reading spend against conversions that have not arrived, or against a handful of conversions that is pure noise |
+| Conversion count halves or doubles overnight with no campaign change | At more than a few conversions a day: a tag, goal or consent change, not performance. Below that it is usually noise — compare four-week windows before concluding anything |
+| One primary conversion action is 80%+ of volume and is not the money action | Possibly a pollutant the account is optimising toward. First establish whether it is the only available proxy for phone leads — if so it is the best signal the account has, not the problem |
+| Impressions down sharply but impression share stable | Demand fell, or eligibility shrank (paused keywords, narrower match types or geography, schedule, disapprovals). Check change history before calling it market |
+| Impression share lost to rank rising while lost to budget is flat | Competitive pressure, or the account's own bids fell (a tighter target, or target enforcement on a budget-limited campaign). Auction Insights separates the two |
+| Cost per conversion rising toward the target on a budget-limited Target CPA or ROAS campaign since mid-August 2026, with no account changes | Google's 17 August 2026 change: budget-limited campaigns that used to beat their target now deliver to it. Not a regression. If the lower cost was what the operator wanted, the fix is lowering the target |
 | A change confined to one campaign rather than all of them | Account-side cause. Everything moving together is usually market |
-| Volume down, conversion rate and quality up | **This is recovery, not damage.** Do not flag it as a regression |
-| Many small campaigns all losing impression share to budget | Over-splitting, not underfunding |
-| Clicks far cheaper than the vertical norm | Junk inventory, not a bargain |
+| Volume down, conversion rate and quality up | Often recovery rather than damage — but confirm total qualified leads did not fall. In a thin auction, lost volume is the more expensive outcome |
+| Many small campaigns all losing impression share to budget | Often over-splitting rather than underfunding. Confirm with the budget simulator before concluding which |
+| Display, Video or Performance Max placements with clicks far cheaper than the norm | Junk inventory, not a bargain. On Search in a thin auction, cheap clicks are expected and are not evidence of junk |
 
 ### Baseline facts that stop false alarms
 
-Paid impressions fell roughly 11% year on year across 21,000 accounts in 2026 as
-AI Overviews compressed inventory, while click-through rate rose about 21%. **A
-broad impression decline is the expected market baseline, not an account
-defect.** Do not diagnose a general impression fall as a failure without
-checking whether share held.
+Across 21,425 Optmyzr-managed accounts, impressions fell 11% from Q1 2025 to Q1
+2026 while click-through rate rose 21%. Most of that fall was Display and Video;
+Search volume was down only about 4%. **A broad Display or Video impression
+decline is the expected market baseline, not an account defect.** A Search
+impression fall is not explained by it — check impression share and eligibility
+before treating it as either market or failure. These are mostly English-language,
+US-skewed accounts, not Serbian search.
 
-Ad Strength is inversely correlated with performance in Optmyzr's ~20,000
-account study: "Average" strength averaged a $12.43 cost per conversion against
-$28.68 for "Excellent". Never recommend chasing Ad Strength or Optimisation
-Score.
+Ad Strength shows no reliable correlation with performance. In Optmyzr's
+~20,000-account study (April 2026), "Average" strength ads averaged a $12.43 cost
+per conversion against $28.68 for "Excellent". The data is observational, but it
+is enough that you never recommend chasing Ad Strength or Optimisation Score.
 
 ### Change cadence, and the damage from ignoring it
 
-Targets should move once or twice a month, in 10–20% increments, with 20–30
-conversions collected at the new target before moving again. More than two
-target changes a month is churn, and churn keeps a campaign in perpetual
-learning.
+Google says targets can be changed as often and by as much as needed. A target
+change does **not** trigger a learning status or reset what the bidder has
+learned, and bids respond within minutes. What cannot be done faster is judging
+the result: allow one to two full conversion cycles after any target change, and
+do not stack target changes inside one cycle, because nobody can then tell which
+one did what. Switching bid strategy, changing its settings, or adding and
+removing campaigns from a portfolio is different, and does restart learning.
 
-Never judge a 3–5 day fluctuation. Never change two things within one conversion
-cycle.
+Size the judgement window to volume, not the calendar. Below about 30
+conversions a month, Google's own guidance expects cost-per-conversion swings of
+up to 100% and reaction times of up to two weeks. Never judge a single week in
+such an account — compare four-week windows.
 
 Any target change is also a spend-volume change. A tightened target does not
-just improve efficiency, it declines auctions — one documented case underspent
-budget by €30,000 in a month because nobody watched delivery after tightening.
+just improve efficiency, it declines auctions. Always check delivery against
+budget after tightening, because the usual result is underspend, not savings.
 
 ### What amateurs break
 
-Bid-strategy churn resetting learning. Over-tight targets read as efficiency
-wins but are volume collapses. Device, schedule, location and audience bid
-adjustments, which are simply inert under Smart Bidding. Hour and day
-exclusions, which prevent auction entry entirely rather than letting bidding
-refine within the hour. Pausing zero-conversion keywords that assist. Chasing
-Ad Strength.
+Switching bid strategies repeatedly, which restarts learning each time.
+Over-tight targets read as efficiency wins but are volume collapses. Location,
+schedule and audience bid adjustments left in place under Smart Bidding, where
+they are ignored — though a device adjustment of −100% is honoured under every
+strategy, under Target CPA device adjustments act on the target itself, and
+under Manual CPC or Maximize Clicks every adjustment is live. Pausing
+zero-conversion keywords that assist. Chasing Ad Strength.
+
+Hour and day exclusions stop auction entry entirely. That is a mistake only when
+someone can take the lead in those hours. For a business that cannot answer the
+phone at night — and whose calls are not tracked, so bidding cannot learn that
+night calls go unanswered — the schedule is doing a job bidding cannot. Confirm
+before flagging it.
 
 ### The trap this analysis must avoid
 
@@ -138,9 +160,9 @@ correctly, leave it alone" is an analyst whose criticism carries no information
 work.
 
 Say what you cannot see. You have Google Ads and, where connected, Analytics,
-Search Console and Tag Manager. You cannot see the customer relationship
-system, so you never know whether a conversion became revenue. Where that
-matters, say so rather than implying otherwise.
+Search Console and Tag Manager. Unless offline or CRM conversions are imported,
+you do not know whether a conversion became revenue. Check the conversion action
+types, and where there is no import, say so rather than implying otherwise.
 
 Never average two conflicting readings into a comfortable middle. Investigate
 the gap and report it.
