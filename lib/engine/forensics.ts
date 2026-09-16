@@ -1,12 +1,12 @@
 import { q } from "@/lib/db";
 import { fromMicros } from "./metrics";
 import type { Finding } from "./findings";
+import { testSegment } from "./stats";
 
 // The findings a good teardown makes and a dashboard cannot: where the traffic
 // physically went, when the account changed, and what it is actually optimising
 // toward. These are causes rather than symptoms.
 
-const MIN_SPEND = 40;
 
 // ------------------------------------------------------------ placements ---
 
@@ -68,7 +68,11 @@ export async function placementFindings(clientId: number): Promise<Finding[]> {
 
   // The cheap-click flood, whatever its type. A placement buying a large share
   // of clicks for a trivial share of spend is the signature.
-  const cheap = mapped.filter((p) => p.clicks >= 200 && p.spend / Math.max(p.clicks, 1) < 0.15);
+  // "Cheap" is relative to this account's own cost per click. A fixed 0.15 was a
+  // few cents in euros and could never fire in dinars, where no click costs 0.15.
+  const avgCpc = totalSpend / totalClicks;
+  const cheapCpc = avgCpc * 0.25;
+  const cheap = mapped.filter((p) => p.clicks >= 200 && p.spend / Math.max(p.clicks, 1) < cheapCpc);
   const cheapClicks = cheap.reduce((n, p) => n + p.clicks, 0);
   if (cheapClicks / totalClicks > 0.25) {
     const cheapSpend = cheap.reduce((n, p) => n + p.spend, 0);
@@ -76,10 +80,10 @@ export async function placementFindings(clientId: number): Promise<Finding[]> {
     out.push({
       kind: "placement_cheap_click_flood",
       severity: cheapConv === 0 ? "critical" : "warning",
-      title: `${((cheapClicks / totalClicks) * 100).toFixed(0)}% of clicks cost under 0.15 each`,
-      detail: `${cheapClicks.toLocaleString()} clicks came from placements averaging a few cents, for only ${((cheapSpend / Math.max(totalSpend, 1)) * 100).toFixed(0)}% of spend${cheapConv === 0 ? " and no conversions" : ""}. A click that cheap is not interest, it is an accidental tap on junk inventory. It distorts every blended click-through and conversion rate in the account, and teaches the bid algorithm the wrong thing.`,
+      title: `${((cheapClicks / totalClicks) * 100).toFixed(0)}% of clicks cost under a quarter of the account's average click`,
+      detail: `${cheapClicks.toLocaleString()} clicks came from placements averaging under ${cheapCpc.toFixed(2)} a click (the account average is ${avgCpc.toFixed(2)}), for only ${((cheapSpend / Math.max(totalSpend, 1)) * 100).toFixed(0)}% of spend${cheapConv === 0 ? " and no conversions" : ""}. A click that cheap is not interest, it is an accidental tap on junk inventory. It distorts every blended click-through and conversion rate in the account, and teaches the bid algorithm the wrong thing.`,
       evidence: {
-        cheapClicks, cheapSpend, cheapConversions: cheapConv,
+        cheapClicks, cheapSpend, cheapConversions: cheapConv, avgCpc, cheapCpc,
         shareOfClicks: (cheapClicks / totalClicks) * 100,
         shareOfSpend: totalSpend > 0 ? (cheapSpend / totalSpend) * 100 : 0,
         placements: [...cheap].sort((a, b) => b.clicks - a.clicks).slice(0, 8)
@@ -92,7 +96,7 @@ export async function placementFindings(clientId: number): Promise<Finding[]> {
   // A placement that converts suspiciously well for junk inventory is worse than
   // one that never converts: it manufactures a success signal.
   const suspicious = mapped.filter(
-    (p) => p.conversions > 0 && p.clicks >= 100 && p.spend / Math.max(p.clicks, 1) < 0.5
+    (p) => p.conversions > 0 && p.clicks >= 100 && p.spend / Math.max(p.clicks, 1) < avgCpc * 0.5
       && (p.type === "MOBILE_APPLICATION" || /job|quiz|cleaner|search[a-z]*\.(com|net)/i.test(p.name))
   );
   if (suspicious.length) {
@@ -145,28 +149,69 @@ export async function monthlyShape(clientId: number): Promise<MonthRow[]> {
 /**
  * When did it change, and what changed with it.
  *
- * "Cost per conversion is up" prompts nothing. "It doubled in July, and the
- * campaign that changed is this one, which went from 7,000 clicks to 61,000"
- * prompts an action.
+ * "Cost per conversion is up" prompts nothing. "It doubled from May, when spend
+ * tripled, and the campaign that changed is this one" prompts an action.
  */
 export async function inflectionFindings(clientId: number): Promise<Finding[]> {
-  const months = await monthlyShape(clientId);
-  const usable = months.filter((m) => m.spend >= MIN_SPEND && m.conversions >= 3);
-  if (usable.length < 3) return [];
+  // The current month is always incomplete and still filling in with lagged
+  // conversions, so it always looks worse than it is. It is left out.
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const months = (await monthlyShape(clientId)).filter(
+    (m) => m.spend > 0 && m.month.slice(0, 7) !== thisMonth
+  );
+  if (months.length < 4) return [];
 
-  const best = usable.reduce((a, b) => (a.cpa! <= b.cpa! ? a : b));
-  const recent = usable[usable.length - 1];
-  if (best.month === recent.month) return [];
+  // Find the month where cost per conversion shifted, rather than comparing the
+  // best month with the latest one. "Best of twelve" is partly best by luck, and
+  // a first month of data is often a partial one. Every split with at least two
+  // complete months either side is tested; the correction is for the number of
+  // splits tried.
+  type Split = {
+    at: number; before: { spend: number; conversions: number }; after: { spend: number; conversions: number };
+    p: number; expected: number; significant: boolean;
+  };
+  const sum = (xs: MonthRow[]) => ({
+    spend: xs.reduce((n, m) => n + m.spend, 0),
+    conversions: xs.reduce((n, m) => n + m.conversions, 0),
+  });
+  const splits: Split[] = [];
+  const looks = months.length - 3;
+  for (let at = 2; at <= months.length - 2; at++) {
+    const before = sum(months.slice(0, at));
+    const after = sum(months.slice(at));
+    if (before.conversions < 1 || after.conversions < 1) continue;
+    const test = testSegment(
+      after,
+      { spend: before.spend + after.spend, conversions: before.conversions + after.conversions },
+      looks,
+      "worse"
+    );
+    splits.push({ at, before, after, p: test.p, expected: test.expected, significant: test.significant });
+  }
 
-  const worse = ((recent.cpa! - best.cpa!) / best.cpa!) * 100;
+  const found = splits.filter((x) => x.significant).sort((a, b) => a.p - b.p)[0];
+  if (!found) return [];
+
+  const beforeCpa = found.before.spend / found.before.conversions;
+  const afterCpa = found.after.spend / found.after.conversions;
+  const worse = ((afterCpa - beforeCpa) / beforeCpa) * 100;
   if (worse < 30) return [];
 
-  // The month immediately after the best one is where the change began.
-  const bestIdx = months.findIndex((m) => m.month === best.month);
-  const after = months[bestIdx + 1];
+  const last = months[found.at - 1];
+  const first = months[found.at];
+  const beforeMonths = found.at;
+  const afterMonths = months.length - found.at;
+  const spendPerMonthBefore = found.before.spend / beforeMonths;
+  const spendPerMonthAfter = found.after.spend / afterMonths;
+  const spendChange = ((spendPerMonthAfter - spendPerMonthBefore) / spendPerMonthBefore) * 100;
+  const convPerMonthBefore = found.before.conversions / beforeMonths;
+  const convPerMonthAfter = found.after.conversions / afterMonths;
+  // What each *additional* conversion cost once spend rose. The average hides
+  // it: the first conversions were cheap and still are.
+  const extraConv = convPerMonthAfter - convPerMonthBefore;
+  const marginalCpa = extraConv > 0 ? (spendPerMonthAfter - spendPerMonthBefore) / extraConv : null;
 
-  const movers = after
-    ? await q<any>(`
+  const movers = await q<any>(`
         SELECT c.name, c.campaign_id,
                b.clicks AS before_clicks, a.clicks AS after_clicks,
                b.cost_micros AS before_cost, a.cost_micros AS after_cost,
@@ -177,29 +222,40 @@ export async function inflectionFindings(clientId: number): Promise<Finding[]> {
            AND a.month = $3::date
           JOIN campaigns c ON c.campaign_id = b.campaign_id AND c.client_id = b.client_id
          WHERE b.client_id = $1 AND b.month = $2::date
-         ORDER BY ABS(COALESCE(a.clicks,0) - COALESCE(b.clicks,0)) DESC
+         ORDER BY ABS(COALESCE(a.cost_micros,0) - COALESCE(b.cost_micros,0)) DESC
          LIMIT 5
-      `, [clientId, best.month, after.month])
-    : [];
+      `, [clientId, last.month, first.month]);
 
   const biggest = movers[0];
-  const clickSwing = biggest
-    ? Number(biggest.after_clicks ?? 0) - Number(biggest.before_clicks ?? 0)
-    : 0;
-
   const monthName = (m: string) =>
     new Date(m).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+
+  // Spend rising sharply at the same moment is the commonest cause and the most
+  // useful thing to say: the extra budget bought dearer conversions.
+  const scaled = spendChange > 50;
+  const title = scaled
+    ? `Since ${monthName(first.month)} spend is up ${spendChange.toFixed(0)}% and each conversion costs ${worse.toFixed(0)}% more`
+    : `Cost per conversion has run ${worse.toFixed(0)}% higher since ${monthName(first.month)}`;
 
   return [{
     kind: "performance_inflection",
     severity: worse > 80 ? "critical" : "warning",
-    title: `${monthName(best.month)} was the best month — cost per conversion is now ${worse.toFixed(0)}% higher`,
-    detail: `${monthName(best.month)} converted at ${best.cpa!.toFixed(2)} on ${best.spend.toFixed(0)} of spend. ${monthName(recent.month)} is running at ${recent.cpa!.toFixed(2)}.` +
-      (biggest && Math.abs(clickSwing) > 500
-        ? ` The largest change between ${monthName(best.month)} and ${monthName(after!.month)} was "${biggest.name}", which went from ${Number(biggest.before_clicks).toLocaleString()} clicks to ${Number(biggest.after_clicks).toLocaleString()}. That is where to look first.`
-        : ` Compare the months rather than the last thirty days — the change has a date.`),
+    title,
+    detail:
+      `Through ${monthName(last.month)} the account converted at ${beforeCpa.toFixed(2)} (${found.before.conversions.toFixed(0)} conversions over ${beforeMonths} months, about ${spendPerMonthBefore.toFixed(0)} a month). From ${monthName(first.month)} it has converted at ${afterCpa.toFixed(2)} (${found.after.conversions.toFixed(0)} over ${afterMonths} complete months, about ${spendPerMonthAfter.toFixed(0)} a month) — ${found.after.conversions.toFixed(0)} conversions where the earlier rate predicts ${found.expected.toFixed(0)}, a gap chance does not explain.` +
+      (scaled
+        ? (marginalCpa !== null && spendPerMonthAfter > spendPerMonthBefore
+            ? ` The extra ${(spendPerMonthAfter - spendPerMonthBefore).toFixed(0)} a month bought about ${extraConv.toFixed(1)} more conversions a month — roughly ${marginalCpa.toFixed(0)} for each additional one, against an average of ${afterCpa.toFixed(0)}. In a thin auction the cheap demand is usually already captured, and more money reaches weaker queries, placements and hours. Whether the extra budget is worth it depends on whether a lead is worth ${marginalCpa.toFixed(0)} to this business, not ${afterCpa.toFixed(0)}.`
+            : ` Spend rose but conversions did not, so the additional budget bought nothing measurable.`)
+        : ``) +
+      (biggest
+        ? ` The campaign that changed most between ${monthName(last.month)} and ${monthName(first.month)} was "${biggest.name}", from ${fromMicros(biggest.before_cost).toFixed(0)} to ${fromMicros(biggest.after_cost).toFixed(0)} of spend. That is where to look first.`
+        : ``),
     evidence: {
-      bestMonth: best, recentMonth: recent, worseByPct: worse,
+      changedFrom: first.month, beforeCpa, afterCpa, worseByPct: worse,
+      spendPerMonthBefore, spendPerMonthAfter, spendChangePct: spendChange,
+      conversionsPerMonthBefore: convPerMonthBefore, conversionsPerMonthAfter: convPerMonthAfter, marginalCpa,
+      expectedConversions: found.expected, p: found.p,
       months: months.map((m) => ({ month: m.month, spend: m.spend, clicks: m.clicks, conversions: m.conversions, cpa: m.cpa })),
       biggestMovers: movers.map((m) => ({
         campaign: m.name,
@@ -208,7 +264,7 @@ export async function inflectionFindings(clientId: number): Promise<Finding[]> {
         conversionsBefore: Number(m.before_conv ?? 0), conversionsAfter: Number(m.after_conv ?? 0),
       })),
     },
-    moneyAtStake: recent.conversions * (recent.cpa! - best.cpa!),
+    moneyAtStake: found.after.spend - found.after.conversions * beforeCpa,
   }];
 }
 
@@ -284,8 +340,19 @@ export async function compositionFindings(clientId: number): Promise<Finding[]> 
 // ------------------------------------------------------ bid strategy risk --
 
 /**
- * A bid strategy with no ceiling, on an account whose conversion signal is
- * suspect, is how a junk-traffic flood turns into a month of ruined spend.
+ * Uncapped value bidding.
+ *
+ * This used to flag every maximise strategy without a target and recommend
+ * adding one "as a ceiling". The research of 2026-09-16 reversed that: Google
+ * lets Target CPA start with no history and itself suggests removing tCPA when
+ * data is thin; the one large study (Optmyzr, 14,584 accounts) found setting a
+ * target more likely to hurt than help; and since 17 August 2026 a
+ * budget-limited campaign with a target spends *up to* it. Maximise Conversions
+ * without a target is the recommended state for a small account, not a risk.
+ *
+ * What remains worth saying: Maximise Conversion Value with no target tries to
+ * spend the whole budget chasing value, and if the values are not genuinely
+ * different it is chasing noise.
  */
 export async function biddingFindings(clientId: number): Promise<Finding[]> {
   const rows = await q<any>(`
@@ -301,18 +368,16 @@ export async function biddingFindings(clientId: number): Promise<Finding[]> {
   `, [clientId]);
 
   const uncapped = rows.filter((r) =>
-    /MAXIMIZE_CONVERSIONS|MAXIMIZE_CONVERSION_VALUE|TARGET_SPEND|MAXIMIZE_CLICKS/.test(r.bidding_strategy ?? "")
-    && !r.target_cpa_micros && !r.target_roas
-    && fromMicros(r.spend) >= MIN_SPEND
+    r.bidding_strategy === "MAXIMIZE_CONVERSION_VALUE" && !r.target_roas && fromMicros(r.spend) > 0
   );
   if (!uncapped.length) return [];
 
   const spend = uncapped.reduce((n, r) => n + fromMicros(r.spend), 0);
   return [{
-    kind: "bidding_no_ceiling",
-    severity: "warning",
-    title: `${uncapped.length} campaign${uncapped.length === 1 ? "" : "s"} bid without any cost ceiling`,
-    detail: `${uncapped.slice(0, 3).map((r) => `"${r.name}"`).join(", ")} ${uncapped.length === 1 ? "runs" : "run"} a maximise strategy with no target cost per conversion or target return, on ${spend.toFixed(0)} of spend. Maximise will spend the full budget on whatever converts most cheaply, which is exactly how a flood of junk traffic becomes a month of wasted spend. A target gives the algorithm a ceiling it cannot spend past.`,
+    kind: "bidding_value_uncapped",
+    severity: "info",
+    title: `${uncapped.length} campaign${uncapped.length === 1 ? "" : "s"} maximise conversion value with no return target`,
+    detail: `${uncapped.slice(0, 3).map((r) => `"${r.name}"`).join(", ")} ${uncapped.length === 1 ? "runs" : "run"} value bidding with no target, on ${spend.toFixed(0)} of spend. Google says that strategy tries to spend the full budget. That is fine when conversion values are real and different; if every conversion carries the same value, it is count bidding with a misleading column. Do not add a target merely as a ceiling on a low-volume account — targets there tend to cost volume.`,
     evidence: {
       campaigns: uncapped.map((r) => ({
         campaign: r.name, strategy: r.bidding_strategy,
@@ -356,10 +421,16 @@ export async function underfundedFindings(clientId: number): Promise<Finding[]> 
 
   const totalSpend = mapped.reduce((n, r) => n + r.spend, 0);
   const totalConv = mapped.reduce((n, r) => n + r.conversions, 0);
-  if (totalConv < 5) return [];
   const accountCpa = totalSpend / totalConv;
+  const total = { spend: totalSpend, conversions: totalConv };
 
-  const winners = mapped.filter((r) => r.limited && r.cpa < accountCpa * 0.8);
+  // "Better than average" must survive the same test as "worse": the campaign's
+  // conversions have to exceed what its share of spend predicts by more than
+  // chance, corrected for how many campaigns were compared.
+  const winners = mapped.filter((r) =>
+    r.limited && r.cpa < accountCpa * 0.8
+    && testSegment(r, total, mapped.length, "better").significant
+  );
   if (!winners.length) return [];
 
   return [{

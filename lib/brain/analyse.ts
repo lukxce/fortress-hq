@@ -11,6 +11,7 @@ import { BENCHMARKS } from "./knowledge/benchmarks";
 import { AI_MAX } from "./knowledge/aimax";
 import { PMAX } from "./knowledge/pmax";
 import { LEADGEN } from "./knowledge/leadgen";
+import { SMALL_ACCOUNTS } from "./knowledge/smallaccount";
 import { DIAGNOSTICS, WRITING } from "./knowledge/diagnostics";
 
 // Claude Opus 5. Pinned deliberately: the analysis quality of this app must not
@@ -250,7 +251,7 @@ export async function analyseClient(clientId: number): Promise<{
     system: [
       {
         type: "text" as const,
-        text: [OPERATING_CONTEXT, MECHANICS, REPORTING, LEADGEN, PMAX, AI_MAX, BENCHMARKS, DIAGNOSTICS, WRITING, SYSTEM].join("\n\n"),
+        text: [OPERATING_CONTEXT, SMALL_ACCOUNTS, MECHANICS, REPORTING, LEADGEN, PMAX, AI_MAX, BENCHMARKS, DIAGNOSTICS, WRITING, SYSTEM].join("\n\n"),
         cache_control: { type: "ephemeral" as const },
       },
     ],

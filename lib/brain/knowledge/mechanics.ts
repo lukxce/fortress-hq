@@ -20,10 +20,11 @@ export const MECHANICS = `
 
 ### Smart Bidding volume floors
 
-Google's only hard volume requirement on Search is for **Target ROAS: 15
+Google's only stated volume requirement on Search is for **Target ROAS: 15
 conversions in the past 30 days, counted across the whole account's conversion
-tracking**, not per campaign. Target CPA and Maximise Conversions have no
-published minimum. For *evaluating* results, Google recommends a period
+tracking**, not per campaign. Target CPA can start "with no conversion history",
+and Maximise Conversions has no published minimum; 15 in 30 days is otherwise a
+recommendation for the bidding goal. For *evaluating* results, Google recommends a period
 containing at least 30 conversions (50 for Target ROAS), stretching the period
 beyond a month if needed.
 

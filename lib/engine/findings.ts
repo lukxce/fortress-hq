@@ -4,6 +4,9 @@ import { campaignPerformance, periodTotals, pacing, fromMicros } from "./metrics
 import { segmentFindings } from "./segments";
 import { forensicFindings } from "./forensics";
 import { biddingHealthFindings } from "./bidding";
+import {
+  accountBaseline, fromEuros, poissonUpper, testPeriods, zeroConversionMultiple,
+} from "./stats";
 
 export type Finding = {
   kind: string;
@@ -16,11 +19,14 @@ export type Finding = {
   entityId?: string;
 };
 
-// Volume gates. Below these, a ratio is noise dressed as a signal: three clicks
-// and no conversion says nothing at all. Every rule that divides respects one.
-const MIN_CLICKS = 100;
-const MIN_SPEND = 50;
-const MIN_CONVERSIONS = 5;
+// Volume gates. Below these, a ratio is noise dressed as a signal. They used to
+// be fixed amounts — 100 clicks, 50 of spend, 5 conversions — which were blind
+// to currency (50 dinars is about €0.43) and to volume (5 conversions leave a
+// true CPA anywhere from 0.43× to 3.1× what it shows). Judgements are now made
+// in the account's own conversions and tested for chance; see stats.ts. The one
+// fixed floor left is for checks with no CPA to measure against, and it is
+// converted into the account's currency.
+const floor = (client: ClientWithProps, eur = 50) => fromEuros(eur, client.currency);
 
 export async function computeFindings(clientId: number): Promise<Finding[]> {
   const client = await clientWithProperties(clientId);
@@ -33,7 +39,7 @@ export async function computeFindings(clientId: number): Promise<Finding[]> {
 
   out.push(...budgetFindings(pace, client));
   out.push(...healthFindings(campaigns));
-  out.push(...(await wasteFindings(clientId)));
+  out.push(...(await wasteFindings(clientId, client)));
   out.push(...efficiencyFindings(campaigns, client, current));
   out.push(...trendFindings(current, previous));
   out.push(...(await trackingFindings(clientId, client, current)));
@@ -106,7 +112,11 @@ function healthFindings(campaigns: Awaited<ReturnType<typeof campaignPerformance
 
     out.push({
       kind: budgetLimited ? "budget_limited" : disapproved ? "ads_disapproved" : "campaign_misconfigured",
-      severity: disapproved ? "critical" : budgetLimited ? "warning" : "warning",
+      // Budget-limited is information, not a fault: Google says Maximise
+      // Conversions and Maximise Conversion Value — the only strategies
+      // Performance Max has — are limited by budget by design, and its lost
+      // impression share to budget is not meaningful for them.
+      severity: disapproved ? "critical" : budgetLimited ? "info" : "warning",
       title: disapproved
         ? `Ads disapproved in ${c.name}`
         : budgetLimited
@@ -115,7 +125,7 @@ function healthFindings(campaigns: Awaited<ReturnType<typeof campaignPerformance
       detail: disapproved
         ? "Disapproved ads do not serve. Everything spent on this campaign is buying less reach than it should."
         : budgetLimited
-          ? `Google reports this campaign is constrained by its budget, so it is losing impressions it would otherwise win. It spent ${c.spend.toFixed(2)} in the last 30 days.`
+          ? `Google reports this campaign is constrained by its budget (${c.spend.toFixed(0)} spent in the last 30 days). On Maximise Conversions and Performance Max that is expected rather than a problem. It is only a reason to add budget if the extra conversions would be worth their marginal cost, which is higher than the average — never on the status alone.`
           : `Google reports: ${serious.join(", ").toLowerCase().replace(/_/g, " ")}.`,
       evidence: { primaryStatus: c.primary_status, reasons: serious, spend30d: c.spend },
       entityType: "campaign",
@@ -127,44 +137,45 @@ function healthFindings(campaigns: Awaited<ReturnType<typeof campaignPerformance
 
 // ---------------------------------------------------------------- waste ----
 
-async function wasteFindings(clientId: number): Promise<Finding[]> {
-  const rows = await q<{
-    total_cost: string; term_count: string; top_terms: any;
-  }>(`
-    WITH wasteful AS (
-      SELECT term, cost_micros, clicks
-        FROM search_terms
-       WHERE client_id = $1 AND conversions = 0 AND cost_micros > 2000000
-    )
-    SELECT COALESCE(SUM(cost_micros),0) AS total_cost,
-           COUNT(*) AS term_count,
-           COALESCE(json_agg(json_build_object('term', term, 'cost', cost_micros/1e6, 'clicks', clicks)
-                    ORDER BY cost_micros DESC) FILTER (WHERE term IS NOT NULL), '[]') AS top_terms
-      FROM wasteful
+async function wasteFindings(clientId: number, client: ClientWithProps): Promise<Finding[]> {
+  // Search terms cover 90 days, so the baseline does too.
+  const base = await accountBaseline(clientId, 90);
+  if (!base.cpa) return [];
+
+  const terms = await q<{ term: string; cost_micros: string; clicks: string; conversions: string }>(`
+    SELECT term, cost_micros, clicks, conversions FROM search_terms
+     WHERE client_id = $1 AND cost_micros > 0
   `, [clientId]);
+  const looks = terms.length;
+  const needed = zeroConversionMultiple(looks);
 
-  const r = rows[0];
-  const wasted = fromMicros(r?.total_cost);
-  const count = Number(r?.term_count ?? 0);
-  if (wasted < MIN_SPEND || count === 0) return [];
+  const zero = terms
+    .filter((t) => Number(t.conversions) === 0)
+    .map((t) => ({ term: t.term, cost: fromMicros(t.cost_micros), clicks: Number(t.clicks) }))
+    .filter((t) => t.cost >= base.cpa! * 0.5)
+    .sort((a, b) => b.cost - a.cost);
+  if (!zero.length) return [];
 
-  const [totals] = await q<{ cost_micros: string }>(`
-    SELECT COALESCE(SUM(cost_micros),0) AS cost_micros FROM metrics_daily
-     WHERE client_id = $1 AND entity_type = 'campaign'
-       AND date > CURRENT_DATE - 91 AND date <= CURRENT_DATE - 1
-  `, [clientId]);
-  const total = fromMicros(totals?.cost_micros);
-  const share = total > 0 ? (wasted / total) * 100 : 0;
+  const proven = zero.filter((t) => t.cost / base.cpa! >= needed);
+  const ceiling = zero.reduce((n, t) => n + t.cost, 0);
+  const provenSpend = proven.reduce((n, t) => n + t.cost, 0);
+  const share = base.spend > 0 ? (ceiling / base.spend) * 100 : 0;
+  if (ceiling < floor(client)) return [];
 
-  const top = (Array.isArray(r?.top_terms) ? r.top_terms : []).slice(0, 8);
+  const top = zero.slice(0, 8).map((t) => ({
+    term: t.term, cost: t.cost, clicks: t.clicks, cpasSpent: t.cost / base.cpa!,
+    proven: t.cost / base.cpa! >= needed,
+  }));
 
   return [{
     kind: "search_term_waste",
-    severity: share > 20 ? "critical" : "warning",
-    title: `${wasted.toFixed(0)} spent on search terms that never converted`,
-    detail: `${count} search terms took spend and produced no conversions over the last 90 days, which is ${share.toFixed(0)}% of total spend. The largest is "${top[0]?.term ?? ""}" at ${Number(top[0]?.cost ?? 0).toFixed(2)}. These are negative keyword candidates.`,
-    evidence: { wasted, termCount: count, shareOfSpend: share, topTerms: top },
-    moneyAtStake: wasted,
+    severity: proven.length ? (provenSpend / base.spend > 0.1 ? "critical" : "warning") : "info",
+    title: proven.length
+      ? `${proven.length} search term${proven.length === 1 ? "" : "s"} spent ${provenSpend.toFixed(0)} with nothing to show`
+      : `${ceiling.toFixed(0)} went to search terms with no conversions — mostly too thin to judge`,
+    detail: `Over 90 days, ${zero.length} search terms each spent at least half the account's cost per conversion (${base.cpa.toFixed(2)}) and converted nothing: ${share.toFixed(0)}% of spend. That total is a ceiling on waste, not money that would have been saved — some of it is prospecting that assists. ${proven.length ? `${proven.length} of them spent enough (about ${needed.toFixed(1)}× the cost per conversion, allowing for ${looks} terms checked) that zero is evidence: those are negative keyword candidates, starting with "${proven[0].term}".` : `None has spent enough for its zero to rule out chance, so treat them as terms to read, not to exclude. The largest is "${zero[0].term}".`}`,
+    evidence: { wasted: ceiling, provenWaste: provenSpend, termCount: zero.length, provenCount: proven.length, shareOfSpend: share, baselineCpa: base.cpa, cpasNeeded: needed, topTerms: top },
+    moneyAtStake: provenSpend,
   }];
 }
 
@@ -173,7 +184,7 @@ async function wasteFindings(clientId: number): Promise<Finding[]> {
 function efficiencyFindings(
   campaigns: Awaited<ReturnType<typeof campaignPerformance>>,
   client: ClientWithProps,
-  overall: { cpa: number | null; roas: number | null; spend: number }
+  overall: { cpa: number | null; roas: number | null; spend: number; conversions: number }
 ): Finding[] {
   const out: Finding[] = [];
   const goal = client.goal_type;
@@ -183,48 +194,59 @@ function efficiencyFindings(
   // Account level against the operator's own target. No target means no
   // judgement is possible, and inventing a benchmark would be worse than
   // staying quiet.
-  if (goal === "cpa" && targetCpa && overall.cpa !== null && overall.spend >= MIN_SPEND) {
+  // "Above target" is only said when even the most favourable reading of the
+  // conversion count — the top of its exact 95% interval — still misses. At
+  // eight conversions a month the observed CPA alone cannot carry that claim.
+  if (goal === "cpa" && targetCpa && overall.cpa !== null && overall.conversions > 0) {
     const over = ((overall.cpa - targetCpa) / targetCpa) * 100;
-    if (over > 15) {
+    const bestCaseCpa = overall.spend / poissonUpper(overall.conversions);
+    if (over > 15 && bestCaseCpa > targetCpa) {
       out.push({
         kind: "cpa_above_target",
         severity: over > 50 ? "critical" : "warning",
         title: `Cost per conversion is ${over.toFixed(0)}% above target`,
-        detail: `Thirty-day cost per conversion is ${overall.cpa.toFixed(2)} against a target of ${targetCpa.toFixed(2)}.`,
-        evidence: { cpa: overall.cpa, target: targetCpa, overBy: over },
+        detail: `Thirty-day cost per conversion is ${overall.cpa.toFixed(2)} against a target of ${targetCpa.toFixed(2)} — and even on the most favourable reading of ${overall.conversions.toFixed(0)} conversions it would be ${bestCaseCpa.toFixed(2)}, still above target.`,
+        evidence: { cpa: overall.cpa, target: targetCpa, overBy: over, bestCaseCpa, conversions: overall.conversions },
         moneyAtStake: overall.spend * (over / 100) / (1 + over / 100),
       });
     }
   }
-  if (goal === "roas" && targetRoas && overall.roas !== null && overall.spend >= MIN_SPEND) {
+  if (goal === "roas" && targetRoas && overall.roas !== null && overall.conversions > 0) {
     const under = ((targetRoas - overall.roas) / targetRoas) * 100;
-    if (under > 15) {
+    const bestCaseRoas = overall.roas * (poissonUpper(overall.conversions) / overall.conversions);
+    if (under > 15 && bestCaseRoas < targetRoas) {
       out.push({
         kind: "roas_below_target",
         severity: under > 40 ? "critical" : "warning",
         title: `Return on ad spend is ${under.toFixed(0)}% below target`,
         detail: `Thirty-day return is ${overall.roas.toFixed(2)}x against a target of ${targetRoas.toFixed(2)}x.`,
-        evidence: { roas: overall.roas, target: targetRoas, underBy: under },
+        evidence: { roas: overall.roas, target: targetRoas, underBy: under, bestCaseRoas, conversions: overall.conversions },
         moneyAtStake: overall.spend * (under / 100),
       });
     }
   }
 
-  // Campaign level: spending with nothing to show for it.
-  for (const c of campaigns) {
-    if (c.spend < MIN_SPEND || c.clicks < MIN_CLICKS) continue;
-    if (c.conversions === 0) {
-      out.push({
-        kind: "campaign_no_conversions",
-        severity: "critical",
-        title: `${c.name} spent ${c.spend.toFixed(0)} with no conversions`,
-        detail: `${c.clicks} clicks over 30 days and nothing recorded. Either the campaign genuinely is not working, or its conversion tracking is broken — check tracking before pausing.`,
-        evidence: { spend: c.spend, clicks: c.clicks, impressions: c.impressions },
-        moneyAtStake: c.spend,
-        entityType: "campaign",
-        entityId: c.campaign_id,
-      });
-    }
+  // Campaign level: spending with nothing to show for it. Measured in the
+  // account's own conversions, corrected for how many campaigns were checked.
+  const live = campaigns.filter((c) => c.spend > 0);
+  const needed = zeroConversionMultiple(live.length);
+  for (const c of live) {
+    if (c.conversions !== 0) continue;
+    const cpas = overall.cpa ? c.spend / overall.cpa : null;
+    // No account CPA means the whole account recorded nothing; fall back to a
+    // currency-converted floor rather than staying silent.
+    const proven = cpas !== null ? cpas >= needed : c.spend >= floor(client, 150);
+    if (!proven) continue;
+    out.push({
+      kind: "campaign_no_conversions",
+      severity: "critical",
+      title: `${c.name} spent ${c.spend.toFixed(0)} with no conversions`,
+      detail: `${c.clicks} clicks over 30 days and nothing recorded${cpas !== null ? ` — ${cpas.toFixed(1)} times the account's cost per conversion, past the point where chance explains it` : ""}. Either the campaign genuinely is not working, or its conversion tracking is broken — check tracking before pausing.`,
+      evidence: { spend: c.spend, clicks: c.clicks, impressions: c.impressions, cpasSpent: cpas, cpasNeeded: needed },
+      moneyAtStake: c.spend,
+      entityType: "campaign",
+      entityId: c.campaign_id,
+    });
   }
 
   return out;
@@ -234,17 +256,21 @@ function efficiencyFindings(
 
 function trendFindings(cur: any, prev: any): Finding[] {
   const out: Finding[] = [];
-  if (prev.spend < MIN_SPEND || cur.spend < MIN_SPEND) return out;
+  if (cur.cpa === null || prev.cpa === null) return out;
 
-  if (cur.cpa !== null && prev.cpa !== null && prev.conversions >= MIN_CONVERSIONS) {
-    const change = ((cur.cpa - prev.cpa) / prev.cpa) * 100;
-    if (change > 25) {
+  // A month-on-month CPA move is only reported when the split of conversions
+  // between the two periods is unlikely under "nothing changed". At 20
+  // conversions a month, a 40% swing is routine.
+  const change = ((cur.cpa - prev.cpa) / prev.cpa) * 100;
+  const test = testPeriods(cur, prev, "worse");
+  {
+    if (change > 25 && test.significant) {
       out.push({
         kind: "cpa_rising",
         severity: "warning",
         title: `Cost per conversion rose ${change.toFixed(0)}% versus the previous 30 days`,
-        detail: `It moved from ${prev.cpa.toFixed(2)} to ${cur.cpa.toFixed(2)} while spend went from ${prev.spend.toFixed(0)} to ${cur.spend.toFixed(0)}.`,
-        evidence: { current: cur.cpa, previous: prev.cpa, changePct: change },
+        detail: `It moved from ${prev.cpa.toFixed(2)} to ${cur.cpa.toFixed(2)} while spend went from ${prev.spend.toFixed(0)} to ${cur.spend.toFixed(0)} — ${cur.conversions.toFixed(0)} conversions where the previous rate predicts about ${test.expected.toFixed(0)}, a gap chance rarely produces.`,
+        evidence: { current: cur.cpa, previous: prev.cpa, changePct: change, expectedConversions: test.expected, p: test.p },
         moneyAtStake: (cur.cpa - prev.cpa) * cur.conversions,
       });
     }
@@ -343,7 +369,7 @@ async function trackingFindings(
     const keyEvents = Number(ga?.key_events ?? 0);
     const sessions = Number(ga?.sessions ?? 0);
 
-    if (cur.spend >= MIN_SPEND && cur.conversions === 0 && keyEvents > 0) {
+    if (cur.spend >= floor(client) && cur.conversions === 0 && keyEvents > 0) {
       out.push({
         kind: "ads_tracking_broken",
         severity: "critical",
@@ -352,7 +378,7 @@ async function trackingFindings(
         evidence: { adsConversions: 0, ga4KeyEvents: keyEvents, spend: cur.spend },
         moneyAtStake: cur.spend,
       });
-    } else if (cur.spend >= MIN_SPEND && cur.conversions === 0 && keyEvents === 0 && sessions > 0) {
+    } else if (cur.spend >= floor(client) && cur.conversions === 0 && keyEvents === 0 && sessions > 0) {
       out.push({
         kind: "tracking_silent_everywhere",
         severity: "critical",
@@ -394,7 +420,7 @@ async function overlapFindings(clientId: number, client: ClientWithProps): Promi
 
   if (!rows.length) return [];
   const spend = rows.reduce((n, r) => n + fromMicros(r.cost_micros), 0);
-  if (spend < MIN_SPEND) return [];
+  if (spend < floor(client)) return [];
 
   return [{
     kind: "paid_organic_overlap",
@@ -492,7 +518,7 @@ async function gtmFindings(clientId: number, client: ClientWithProps): Promise<F
         WHERE client_id = $1 AND date > CURRENT_DATE - 31`,
       [clientId]
     );
-    if (fromMicros(spend?.cost_micros) >= MIN_SPEND) {
+    if (fromMicros(spend?.cost_micros) >= floor(client)) {
       out.push({
         kind: "gtm_no_conversion_tag",
         severity: "warning",
