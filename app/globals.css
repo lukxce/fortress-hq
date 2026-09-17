@@ -110,7 +110,7 @@ ul, ol { margin: 0 0 10px; padding-left: 20px; }
 
 .app { display: grid; grid-template-columns: 244px minmax(0, 1fr); min-height: 100vh; }
 .app.bare { display: block; }
-.main { padding: 30px 40px 96px; max-width: 1260px; width: 100%; }
+.main { padding: 30px 40px 96px; max-width: 1260px; width: 100%; min-width: 0; }
 .app.bare .main { max-width: none; padding: 0; }
 
 .sidebar {
@@ -163,6 +163,8 @@ ul, ol { margin: 0 0 10px; padding-left: 20px; }
   .side-nav { flex-direction: row; flex-wrap: wrap; }
   .side-foot { flex-direction: row; flex-wrap: wrap; }
   .main { padding: 20px 16px 80px; }
+  .sentence { font-size: clamp(18px, 5.2vw, 23px); max-width: none; }
+  .stats { grid-template-columns: 1fr; }
 }
 
 /* --- page head ------------------------------------------------------------- */
@@ -175,7 +177,7 @@ ul, ol { margin: 0 0 10px; padding-left: 20px; }
 /* --- cards ----------------------------------------------------------------- */
 
 .card, .sheet {
-  background: var(--paper); border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--r); min-width: 0;
   box-shadow: var(--shadow);
 }
 .card-pad, .sheet-pad { padding: 20px 22px; }

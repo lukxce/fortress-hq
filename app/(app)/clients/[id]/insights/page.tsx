@@ -88,7 +88,7 @@ export default async function WhatToChange({ params, searchParams }: {
                 ? "Everything from the last analysis is done or dismissed. Run it again after the next sync to see what has changed."
                 : "The analysis measures the account first — every figure comes from the data — then writes what to change, in order, with the exact clicks."}
             </p>
-            {!brainConfigured() && <p className="err">ANTHROPIC_API_KEY is not set, so analysis is unavailable.</p>}
+            {!brainConfigured() && <p className="err">Analysis is not set up on this installation yet — the admin needs to add the AI key.</p>}
           </div>
         </div>
       )}

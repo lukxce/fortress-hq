@@ -74,7 +74,7 @@ export function TagOverview({ clientId, check, checkedAt, connected }: {
         <div>
           <h2>Google tags on the website</h2>
           <p className="meta" style={{ margin: "2px 0 0" }}>
-            {check ? <>IDs pulled from Google · {check.website ? <>checked {path(check.website)} and {Math.max(0, check.pages.length - 1)} landing page{check.pages.length === 2 ? "" : "s"} {ago(checkedAt)}</> : "no website known — add one in project settings"}</> : "Not checked yet"}
+            {check ? <>{check.idsUnavailable ? <span className="bad-text">Could not reach Google for the IDs — reconnect on the Connections page</span> : "IDs pulled from Google"} · {check.website ? <>checked {path(check.website)} and {Math.max(0, check.pages.length - 1)} landing page{check.pages.length === 2 ? "" : "s"} {ago(checkedAt)}</> : "no website known — add one in project settings"}</> : "Not checked yet"}
           </p>
         </div>
         <CheckTagsButton clientId={clientId} />

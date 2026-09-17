@@ -40,13 +40,17 @@ export default async function ClientOverview({ params, searchParams }: {
   ]);
   const b = beyond[0];
   const ch = (a: number, p: number) => (p > 0 ? a / p - 1 : null);
-  const productStrip = (client.ga4_property_id || client.gsc_site_url || client.gtm_container_id) ? (
-    <div className="grid-3">
-      {[
-        client.ga4_property_id && { href: "analytics", label: "Analytics · 28 days", value: `${count(b.sessions)} sessions`, sub: `${count(b.key_events, 1)} key events`, change: ch(b.sessions, b.sessions_prev) },
-        client.gsc_site_url && { href: "search-console", label: "Organic search · 28 days", value: `${count(b.organic)} clicks`, sub: "from Google without ads", change: ch(b.organic, b.organic_prev) },
-        client.gtm_container_id && { href: "tag-manager", label: "Tag Manager", value: `${b.tags} live tags`, sub: b.tag_problems ? `${b.tag_problems} problem${b.tag_problems === 1 ? "" : "s"} found` : "no problems found", change: null },
-      ].filter(Boolean).map((x: any) => (
+  const productCards = [
+    client.ga4_property_id && { href: "analytics", label: "Analytics · 28 days", value: `${count(b.sessions)} sessions`, sub: `${count(b.key_events, 1)} key events`, change: ch(b.sessions, b.sessions_prev) },
+    client.gsc_site_url && { href: "search-console", label: "Organic search · 28 days", value: `${count(b.organic)} clicks`, sub: "from Google without ads", change: ch(b.organic, b.organic_prev) },
+    client.gtm_container_id && { href: "tag-manager", label: "Tag Manager", value: `${b.tags} live tags`, sub: b.tag_problems ? `${b.tag_problems} problem${b.tag_problems === 1 ? "" : "s"} found` : "no problems found", change: null },
+  ].filter(Boolean) as { href: string; label: string; value: string; sub: string; change: number | null }[];
+  const missing = [!client.ga4_property_id && "Analytics", !client.gsc_site_url && "Search Console", !client.gtm_container_id && "Tag Manager"].filter(Boolean) as string[];
+  // One lone card in a three-column grid reads as a broken page, so a single
+  // product is a line, and the other products' absence is said in the same breath.
+  const productStrip = productCards.length >= 2 ? (
+    <div className="grid-3" style={{ gridTemplateColumns: `repeat(${productCards.length}, minmax(0, 1fr))` }}>
+      {productCards.map((x) => (
         <Link key={x.href} href={`/clients/${client.id}/${x.href}` as never} className="card stat" style={{ color: "inherit", textDecoration: "none" }}>
           <span className="label">{x.label}</span>
           <div className="stat-value" style={{ fontSize: 24 }}>{x.value}</div>
@@ -54,7 +58,12 @@ export default async function ClientOverview({ params, searchParams }: {
         </Link>
       ))}
     </div>
-  ) : null;
+  ) : (
+    <p className="meta" style={{ margin: 0 }}>
+      {productCards[0] && <><Link href={`/clients/${client.id}/${productCards[0].href}` as never}>{productCards[0].label.replace(/ · .*$/, "")}</Link>: {productCards[0].value}, {productCards[0].sub}. </>}
+      {missing.length > 0 && <>{missing.join(missing.length === 2 ? " and " : ", ")} {missing.length === 1 ? "is" : "are"} not connected — <Link href={`/clients/${client.id}/settings` as never}>connect in project settings</Link>.</>}
+    </p>
+  );
 
   const t = o.totals;
   const noData = t.spend === 0 && o.previous.spend === 0;
@@ -94,8 +103,6 @@ export default async function ClientOverview({ params, searchParams }: {
         </div>
       </header>
 
-      {productStrip}
-
       {noData ? (
         <div className="card card-pad">
           <div className="empty">
@@ -126,6 +133,8 @@ export default async function ClientOverview({ params, searchParams }: {
             <StatCard metric={pick("cpa")} currency={cur} versus={`vs previous ${days} days`} />
             <StatCard metric={pick("clicks")} currency={cur} versus={`vs previous ${days} days`} />
           </div>
+
+          {productStrip}
 
           <div className="grid-2" style={{ gridTemplateColumns: "minmax(0,1.5fr) minmax(0,1fr)" }}>
             <div className="card card-pad">

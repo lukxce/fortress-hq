@@ -11,7 +11,9 @@ declare global {
 
 function pool(): Pool {
   if (!globalThis.__fortressPool) {
-    const connectionString = process.env.DATABASE_URL?.trim();
+    // pg treats prefer/require/verify-ca as verify-full today and warns about it
+    // on every start; say verify-full outright so the warning does not mask real errors.
+    const connectionString = process.env.DATABASE_URL?.trim()?.replace(/sslmode=(prefer|require|verify-ca)\b/, "sslmode=verify-full");
     if (!connectionString) {
       throw new Error(
         "DATABASE_URL is not set. Copy .env.example to .env.local and add your Vercel Postgres connection string."
