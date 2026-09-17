@@ -22,6 +22,9 @@ const Body = z.object({
   targetCpa: z.number().positive().nullable().optional(),
   targetRoas: z.number().positive().nullable().optional(),
   monthlyBudget: z.number().positive().nullable().optional(),
+  website: z.string().max(300).nullable().optional(),
+  brandTerms: z.array(z.string().max(60)).max(30).optional(),
+  industry: z.string().max(40).nullable().optional(),
   bindings: z.array(z.object({
     provider: z.enum(["ga4", "gsc", "gtm", "gbp"]),
     inventory_id: z.number().int(),

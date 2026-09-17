@@ -21,12 +21,15 @@ const PROVIDER_LABEL = { ga4: "Analytics", gsc: "Search Console", gtm: "Tag Mana
 
 type Option = { id: number; provider: "ga4" | "gsc" | "gtm" | "gbp"; display_name: string; provider_id: string; domain: string | null };
 
-export function NewClient({ candidates, options }: { candidates: Candidate[]; options: Option[] }) {
+export function NewClient({ candidates, options, industries }: { candidates: Candidate[]; options: Option[]; industries: Record<string, string> }) {
   const [adsId, setAdsId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [goalType, setGoalType] = useState<"cpa" | "roas">("cpa");
   const [target, setTarget] = useState("");
   const [budget, setBudget] = useState("");
+  const [website, setWebsite] = useState("");
+  const [brands, setBrands] = useState("");
+  const [industry, setIndustry] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [chosen, setChosen] = useState<Record<"ga4" | "gsc" | "gtm" | "gbp", number | null>>({ ga4: null, gsc: null, gtm: null, gbp: null });
   const [busy, setBusy] = useState(false);
@@ -36,6 +39,9 @@ export function NewClient({ candidates, options }: { candidates: Candidate[]; op
   async function pick(c: Candidate) {
     setAdsId(c.id);
     setName(c.display_name || `Account ${c.provider_id}`);
+    setWebsite(c.domain ? `https://${c.domain}` : "");
+    // A first guess at brand words from the domain; the operator corrects it.
+    setBrands(c.domain ? c.domain.split(".")[0].replace(/-/g, " ") : "");
     setError(null);
     setSuggestions([]);
     try {
@@ -67,6 +73,9 @@ export function NewClient({ candidates, options }: { candidates: Candidate[]; op
           targetCpa: goalType === "cpa" && target ? Number(target) : null,
           targetRoas: goalType === "roas" && target ? Number(target) : null,
           monthlyBudget: budget ? Number(budget) : null,
+          website: website.trim() || null,
+          brandTerms: brands.split(",").map((b) => b.trim()).filter(Boolean),
+          industry: industry || null,
           bindings: (["ga4", "gsc", "gtm", "gbp"] as const)
             .filter((p) => chosen[p] != null)
             .map((p) => {
@@ -139,6 +148,28 @@ export function NewClient({ candidates, options }: { candidates: Candidate[]; op
                 onChange={(e) => setBudget(e.target.value)} placeholder="optional"
               />
             </div>
+          </div>
+
+          <div className="field-row">
+            <div className="field">
+              <label className="label" htmlFor="website">Website</label>
+              <input id="website" type="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://example.com" />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="industry">Industry</label>
+              <select id="industry" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                <option value="">Detect automatically</option>
+                {Object.entries(industries).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="brands">Brand words</label>
+            <input id="brands" type="text" value={brands} onChange={(e) => setBrands(e.target.value)} placeholder="e.g. optimal25, optimal 25" />
+            <p className="meta field-note" style={{ marginTop: 2 }}>
+              Comma-separated. Searches containing these are treated as brand: never flagged as waste or proposed as negatives.
+              The website is where the tag check and page speed look.
+            </p>
           </div>
 
           <p className="meta field-note">

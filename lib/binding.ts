@@ -123,6 +123,9 @@ export async function createClient(input: {
   targetCpa?: number | null;
   targetRoas?: number | null;
   monthlyBudget?: number | null;
+  website?: string | null;
+  brandTerms?: string[];
+  industry?: string | null;
   bindings: { provider: "ga4" | "gsc" | "gtm" | "gbp"; inventory_id: number; bound_by: "auto" | "confirmed" | "manual" }[];
 }): Promise<number> {
   const me = await currentUser();
@@ -140,8 +143,9 @@ export async function createClient(input: {
 
   return tx(async (run) => {
     const [client] = await run<{ id: number }>(
-      `INSERT INTO clients (name, goal_type, target_cpa, target_roas, monthly_budget, currency, timezone, owner_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      `INSERT INTO clients (name, goal_type, target_cpa, target_roas, monthly_budget, currency, timezone, owner_id,
+                            website, brand_terms, industry, industry_source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
       [
         input.name.trim(),
         input.goalType,
@@ -151,6 +155,10 @@ export async function createClient(input: {
         ads.currency,
         ads.timezone,
         owner,
+        input.website?.trim() || null,
+        (input.brandTerms ?? []).map((b) => b.trim().toLowerCase()).filter(Boolean),
+        input.industry || null,
+        input.industry ? "manual" : null,
       ]
     );
 

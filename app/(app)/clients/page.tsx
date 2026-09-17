@@ -2,6 +2,7 @@ import Link from "next/link";
 import { q } from "@/lib/db";
 import { clientsWithProperties } from "@/lib/binding";
 import { NewClient } from "@/components/NewClient";
+import { INDUSTRIES } from "@/lib/learning/industry";
 import { currentUser, visibleConnections } from "@/lib/user";
 
 export const dynamic = "force-dynamic";
@@ -96,7 +97,7 @@ export default async function Clients() {
       )}
 
       {candidates.length > 0 ? (
-        <NewClient candidates={candidates} options={options} />
+        <NewClient candidates={candidates} options={options} industries={INDUSTRIES} />
       ) : clients.length === 0 ? (
         <div className="sheet sheet-pad">
           <div className="empty">
