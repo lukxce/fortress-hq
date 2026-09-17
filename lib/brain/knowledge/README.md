@@ -13,6 +13,9 @@ Structure:
 - `benchmarks.ts` — what a number means, by vertical and channel. Every entry
   carries its source and a confidence, because a benchmark stated without
   provenance is just an opinion with a decimal point.
+- `tagmanager.ts`, `analytics.ts`, `searchconsole.ts`, `website.ts`,
+  `keywords.ts` — the other products, each fact-checked against Google's own
+  documentation on 2026-09-17; same rules, same "if you see X, suspect Y" tables.
 - `context.ts`    — the operating context these particular accounts live in:
   small local service businesses, modest budgets, low conversion volume, a
   market where Google's automation has less data to work with.

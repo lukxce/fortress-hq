@@ -13,6 +13,10 @@ import { PMAX } from "./knowledge/pmax";
 import { AI_MAX } from "./knowledge/aimax";
 import { BENCHMARKS } from "./knowledge/benchmarks";
 import { DIAGNOSTICS, WRITING } from "./knowledge/diagnostics";
+import { ANALYTICS } from "./knowledge/analytics";
+import { SEARCH_CONSOLE } from "./knowledge/searchconsole";
+import { TAG_MANAGER } from "./knowledge/tagmanager";
+import { WEBSITE } from "./knowledge/website";
 
 // Claude Opus 5, pinned: analysis quality must not depend on a default changed
 // elsewhere for unrelated reasons.
@@ -24,7 +28,14 @@ export function brainConfigured(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
 }
 
-export const KNOWLEDGE = [OPERATING_CONTEXT, SMALL_ACCOUNTS, MECHANICS, REPORTING, LEADGEN, PMAX, AI_MAX, BENCHMARKS, DIAGNOSTICS, WRITING].join("\n\n");
+// One block, always the same, so the prompt cache holds across projects. The
+// other products' modules ride along even for Ads-only projects: a stable
+// cached prefix costs a tenth of a fresh one.
+export const KNOWLEDGE = [
+  OPERATING_CONTEXT, SMALL_ACCOUNTS, MECHANICS, REPORTING, LEADGEN, PMAX, AI_MAX, BENCHMARKS, DIAGNOSTICS,
+  TAG_MANAGER, ANALYTICS, SEARCH_CONSOLE, WEBSITE,
+  WRITING,
+].join("\n\n");
 
 const SYSTEM = `You write the "What to change" list for an agency operator running one project: a business's Google Ads account together with whichever of Google Analytics, Search Console and Tag Manager are connected (client.connected). Your output becomes cards with numbered steps the operator follows, and some of those cards carry a button that makes the change in Google Ads after they confirm.
 
