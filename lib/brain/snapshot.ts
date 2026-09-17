@@ -77,6 +77,7 @@ export async function accountSnapshot(clientId: number) {
         analytics: Boolean(client.ga4_property_id),
         searchConsole: Boolean(client.gsc_site_url),
         tagManager: Boolean(client.gtm_container_id),
+        businessProfile: Boolean(client.gbp_location_id),
       },
     },
     baseline: {
@@ -115,6 +116,9 @@ export async function accountSnapshot(clientId: number) {
     analytics: beyondAds.analytics,
     searchConsole: beyondAds.searchConsole,
     tagManager: beyondAds.tagManager,
+    businessProfile: beyondAds.businessProfile,
+    pageSpeed: beyondAds.pageSpeed,
+    keywordPlanner: beyondAds.keywordPlanner,
     _findings: findings,
   };
 }
@@ -140,10 +144,26 @@ async function otherProducts(clientId: number) {
     q<any>(`SELECT page, clicks::int, prev_clicks::int, position::float FROM gsc_pages WHERE client_id = $1 ORDER BY clicks DESC LIMIT 20`, [clientId]),
     q<any>(`SELECT name, type, paused FROM gtm_tags WHERE client_id = $1 ORDER BY name LIMIT 60`, [clientId]),
   ]);
+  const [gbp, reviews, speed, ideas, volumes, target] = await Promise.all([
+    q<any>(`SELECT metric, COALESCE(SUM(value) FILTER (WHERE date > CURRENT_DATE - 32),0)::int AS last28,
+                   COALESCE(SUM(value) FILTER (WHERE date <= CURRENT_DATE - 32 AND date > CURRENT_DATE - 60),0)::int AS prev28
+              FROM gbp_daily WHERE client_id = $1 GROUP BY metric`, [clientId]),
+    q<any>(`SELECT count(*)::int AS n, AVG(rating)::float AS avg, count(*) FILTER (WHERE NOT replied)::int AS unanswered FROM gbp_reviews WHERE client_id = $1`, [clientId]),
+    q<any>(`SELECT url, role, strategy, score, lab, field, field_scope, opportunities, error FROM page_speed WHERE client_id = $1`, [clientId]),
+    q<any>(`SELECT keyword, avg_monthly::int AS monthly, competition FROM keyword_ideas WHERE client_id = $1 ORDER BY avg_monthly DESC LIMIT 60`, [clientId]),
+    q<any>(`SELECT keyword, avg_monthly::int AS monthly, sources FROM keyword_volumes WHERE client_id = $1 ORDER BY avg_monthly DESC NULLS LAST LIMIT 120`, [clientId]),
+    q<any>(`SELECT keyword_targeting FROM clients WHERE id = $1`, [clientId]),
+  ]);
   return {
     analytics: ga[0]?.n ? { note: "Google Analytics, all channels, not only paid.", ...ga[0], n: undefined, channels90d: channels, events90d: events } : null,
     searchConsole: gsc[0]?.n ? { note: "Organic Google search. Windows end three days ago.", ...gsc[0], n: undefined, topPages28d: pages } : null,
     tagManager: tags.length ? { tags } : null,
+    businessProfile: gbp.length ? { note: "Google Business Profile, daily, about three days behind.", metrics: gbp, reviews: reviews[0] } : null,
+    pageSpeed: speed.length ? { note: "PageSpeed Insights. field = real Chrome visitors at the 75th percentile (page or whole site, see field_scope); lab = one simulated run.", pages: speed } : null,
+    keywordPlanner: volumes.length || ideas.length ? {
+      note: "Google Keyword Planner: rounded 12-month average monthly searches where the campaigns target. For ordering, not forecasting.",
+      targeting: target[0]?.keyword_targeting ?? null, volumesForExisting: volumes, newIdeas: ideas,
+    } : null,
   };
 }
 

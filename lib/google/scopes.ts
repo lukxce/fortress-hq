@@ -19,6 +19,11 @@ export const SCOPES = [
   "https://www.googleapis.com/auth/tagmanager.publish",
 ] as const;
 
+// Asked for separately, only when someone connects Business Profile. Requesting
+// a scope whose API is not enabled on the Cloud project makes Google refuse the
+// whole consent — so an unapproved Business Profile API must not break signing in.
+export const BUSINESS_SCOPE = "https://www.googleapis.com/auth/business.manage";
+
 
 const A = "https://www.googleapis.com/auth/";
 
@@ -52,10 +57,17 @@ export const PRODUCT_SCOPES = [
     write: [`${A}tagmanager.edit.containers`, `${A}tagmanager.publish`],
     why: "Container contents, and whether anyone changed them overnight.",
   },
+  {
+    key: "gbp" as const,
+    label: "Business Profile",
+    read: [BUSINESS_SCOPE],
+    write: [],
+    why: "Calls, direction requests, website clicks, what people searched to find the business, and reviews.",
+  },
 ];
 
 export type ProductAccess = {
-  key: "ads" | "ga4" | "gsc" | "gtm";
+  key: "ads" | "ga4" | "gsc" | "gtm" | "gbp";
   label: string;
   why: string;
   canRead: boolean;

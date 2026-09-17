@@ -3,7 +3,7 @@ import { currentUser, visibleClients, visibleConnections } from "@/lib/user";
 
 export type InventoryItem = {
   id: number;
-  provider: "ads" | "ga4" | "gsc" | "gtm";
+  provider: "ads" | "ga4" | "gsc" | "gtm" | "gbp";
   provider_id: string;
   display_name: string;
   domain: string | null;
@@ -12,7 +12,7 @@ export type InventoryItem = {
 };
 
 export type Suggestion = {
-  provider: "ga4" | "gsc" | "gtm";
+  provider: "ga4" | "gsc" | "gtm" | "gbp";
   inventory_id: number;
   label: string;
   reason: string;
@@ -46,7 +46,7 @@ export async function suggestBindings(adsInventoryId: number): Promise<Suggestio
   const adsDomain = normalise(ads.domain);
   const adsName = ads.display_name.toLowerCase();
 
-  for (const provider of ["ga4", "gsc", "gtm"] as const) {
+  for (const provider of ["ga4", "gsc", "gtm", "gbp"] as const) {
     const candidates = others.filter((o) => o.provider === provider);
     if (!candidates.length) continue;
 
@@ -123,7 +123,7 @@ export async function createClient(input: {
   targetCpa?: number | null;
   targetRoas?: number | null;
   monthlyBudget?: number | null;
-  bindings: { provider: "ga4" | "gsc" | "gtm"; inventory_id: number; bound_by: "auto" | "confirmed" | "manual" }[];
+  bindings: { provider: "ga4" | "gsc" | "gtm" | "gbp"; inventory_id: number; bound_by: "auto" | "confirmed" | "manual" }[];
 }): Promise<number> {
   const me = await currentUser();
   const scope = visibleConnections(me?.id ?? null, 2);
@@ -196,6 +196,7 @@ export type ClientWithProps = ClientRow & {
   ga4_property_id: string | null;
   gsc_site_url: string | null;
   gtm_container_id: string | null;
+  gbp_location_id: string | null;
 };
 
 /** A client plus the provider ids the sync job needs. */
@@ -216,7 +217,8 @@ export async function clientsWithProperties(
            MAX(i.provider_id) FILTER (WHERE i.provider = 'ads') AS ads_customer_id,
            MAX(i.provider_id) FILTER (WHERE i.provider = 'ga4') AS ga4_property_id,
            MAX(i.provider_id) FILTER (WHERE i.provider = 'gsc') AS gsc_site_url,
-           MAX(i.provider_id) FILTER (WHERE i.provider = 'gtm') AS gtm_container_id
+           MAX(i.provider_id) FILTER (WHERE i.provider = 'gtm') AS gtm_container_id,
+           MAX(i.provider_id) FILTER (WHERE i.provider = 'gbp') AS gbp_location_id
       FROM clients c
       LEFT JOIN client_properties cp ON cp.client_id = c.id
       LEFT JOIN inventory i ON i.id = cp.inventory_id

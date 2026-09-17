@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 export type InventoryRow = {
   id: number;
-  provider: "ads" | "ga4" | "gsc" | "gtm";
+  provider: "ads" | "ga4" | "gsc" | "gtm" | "gbp";
   provider_id: string;
   display_name: string;
   domain: string | null;
@@ -24,6 +24,7 @@ const GROUPS = [
   { key: "ga4", label: "Analytics", hint: "GA4 properties." },
   { key: "gsc", label: "Search Console", hint: "Verified properties." },
   { key: "gtm", label: "Tag Manager", hint: "Containers." },
+  { key: "gbp", label: "Business Profile", hint: "Business locations. Connect Business Profile above to see them." },
 ] as const;
 
 export function PickList({ initial }: { initial: InventoryRow[] }) {

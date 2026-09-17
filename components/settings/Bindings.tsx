@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Option = { id: number; label: string; sub: string | null };
-type Slot = { provider: "ads" | "ga4" | "gsc" | "gtm"; label: string; current: number | null; options: Option[]; adds: string };
+type Slot = { provider: "ads" | "ga4" | "gsc" | "gtm" | "gbp"; label: string; current: number | null; options: Option[]; adds: string };
 
 /**
  * Which Google account, property, site and container this project reads.

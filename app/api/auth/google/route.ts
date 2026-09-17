@@ -5,7 +5,7 @@ import { authUrl, oauthConfigured } from "@/lib/google/auth";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!oauthConfigured()) {
     return NextResponse.json(
       { error: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set." },
@@ -24,5 +24,6 @@ export async function GET() {
     maxAge: 600,
   });
 
-  return NextResponse.redirect(authUrl(state));
+  const business = new URL(req.url).searchParams.get("with") === "business";
+  return NextResponse.redirect(authUrl(state, { business }));
 }

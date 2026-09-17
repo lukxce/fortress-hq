@@ -1,7 +1,7 @@
 import { OAuth2Client } from "google-auth-library";
 import { q, q1 } from "@/lib/db";
 import { encrypt, decrypt } from "@/lib/crypto";
-import { SCOPES } from "./scopes";
+import { SCOPES, BUSINESS_SCOPE } from "./scopes";
 
 export type Connection = {
   id: number;
@@ -60,7 +60,7 @@ function baseClient(): OAuth2Client {
 }
 
 /** Consent URL. offline + consent are both required to get a refresh token. */
-export function authUrl(state: string): string {
+export function authUrl(state: string, opts: { business?: boolean } = {}): string {
   return baseClient().generateAuthUrl({
     access_type: "offline",
     // Both matter, and for different reasons. "consent" forces the consent
@@ -70,7 +70,7 @@ export function authUrl(state: string): string {
     // straight into it, with no way to authorise a different one.
     prompt: "select_account consent",
     include_granted_scopes: true,
-    scope: [...SCOPES],
+    scope: opts.business ? [...SCOPES, BUSINESS_SCOPE] : [...SCOPES],
     state,
   });
 }

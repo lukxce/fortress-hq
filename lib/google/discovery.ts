@@ -5,7 +5,7 @@ import { clientFor } from "./auth";
 import { listAccessibleCustomers, customerTree, guessDomain, digits } from "./ads";
 import { countOps, gtmPace } from "./quota";
 
-export type Provider = "ads" | "ga4" | "gsc" | "gtm";
+export type Provider = "ads" | "ga4" | "gsc" | "gtm" | "gbp";
 
 /**
  * Run an async map with a concurrency cap.
@@ -150,6 +150,62 @@ async function discoverGa4(auth: OAuth2Client, deadline: Deadline): Promise<Disc
   return out;
 }
 
+// --- Business Profile -------------------------------------------------------
+
+/**
+ * Every business location the account manages. Only asked for when the
+ * connection was granted Business Profile access — and Google must also have
+ * approved the Cloud project for these APIs, or every call answers with a
+ * quota of zero.
+ */
+async function discoverGbp(auth: OAuth2Client): Promise<Discovered[]> {
+  const accounts = google.mybusinessaccountmanagement({ version: "v1", auth });
+  const info = google.mybusinessbusinessinformation({ version: "v1", auth });
+  const out: Discovered[] = [];
+  let pageToken: string | undefined;
+  const all: any[] = [];
+  do {
+    const res = await accounts.accounts.list({ pageSize: 20, pageToken });
+    await countOps("gbp", 1);
+    all.push(...(res.data.accounts ?? []));
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  for (const a of all) {
+    let token: string | undefined;
+    do {
+      const res = await info.accounts.locations.list({
+        parent: a.name, pageSize: 100, pageToken: token,
+        readMask: "name,title,storefrontAddress,websiteUri,phoneNumbers,categories,metadata",
+      });
+      await countOps("gbp", 1);
+      for (const l of res.data.locations ?? []) {
+        let domain: string | null = null;
+        try { domain = l.websiteUri ? new URL(l.websiteUri).hostname.replace(/^www\./, "") : null; } catch { domain = null; }
+        const addr = l.storefrontAddress;
+        out.push({
+          provider: "gbp",
+          providerId: String(l.name),
+          displayName: l.title ?? String(l.name),
+          domain,
+          parentId: a.name ?? null,
+          parentName: a.accountName ?? null,
+          extra: {
+            address: addr ? [...(addr.addressLines ?? []), addr.locality].filter(Boolean).join(", ") : null,
+            phone: l.phoneNumbers?.primaryPhone ?? null,
+            category: l.categories?.primaryCategory?.displayName ?? null,
+            mapsUri: l.metadata?.mapsUri ?? null,
+            placeId: l.metadata?.placeId ?? null,
+            website: l.websiteUri ?? null,
+          },
+        });
+      }
+      token = res.data.nextPageToken ?? undefined;
+    } while (token);
+  }
+  return out;
+}
+
 // --- Search Console ---------------------------------------------------------
 
 async function discoverGsc(auth: OAuth2Client): Promise<Discovered[]> {
@@ -218,7 +274,9 @@ export async function runDiscovery(
 ): Promise<DiscoveryReport> {
   const client = await clientFor(connectionId);
   const deadline = new Deadline();
-  const found: Record<Provider, number> = { ads: 0, ga4: 0, gsc: 0, gtm: 0 };
+  const found: Record<Provider, number> = { ads: 0, ga4: 0, gsc: 0, gtm: 0, gbp: 0 };
+  const [conn] = await q<{ scopes: string[] }>(`SELECT scopes FROM connections WHERE id = $1`, [connectionId]);
+  const hasBusiness = (conn?.scopes ?? []).includes("https://www.googleapis.com/auth/business.manage");
   const errors: DiscoveryReport["errors"] = [];
   const all: Discovered[] = [];
 
@@ -227,6 +285,7 @@ export async function runDiscovery(
     ["ga4", () => discoverGa4(client, deadline)],
     ["gsc", () => discoverGsc(client)],
     ["gtm", () => discoverGtm(client, deadline)],
+    ...(hasBusiness ? [["gbp", () => discoverGbp(client)] as [Provider, () => Promise<Discovered[]>]] : []),
   ];
 
   // The four products are independent, so waiting for each in turn wasted the

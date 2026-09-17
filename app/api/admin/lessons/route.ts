@@ -6,7 +6,7 @@ import { body, failure } from "@/lib/api";
 
 export const runtime = "nodejs";
 
-const PRODUCT = z.enum(["all", "ads", "analytics", "search_console", "tag_manager"]);
+const PRODUCT = z.enum(["all", "ads", "analytics", "search_console", "tag_manager", "business_profile", "website"]);
 
 export async function POST(req: NextRequest) {
   const admin = await adminOr404();

@@ -70,7 +70,7 @@ export async function proxy(req: NextRequest, event: NextFetchEvent) {
   // Viewing as someone else is look-but-don't-touch: nothing that changes data
   // or a Google account gets through. Asking a question and leaving the mode do.
   if (req.cookies.get("fortress_view_as")?.value && !["GET", "HEAD"].includes(req.method) &&
-      pathname.startsWith("/api/") && !["/api/admin/view-as", "/api/chat", "/api/login"].includes(pathname)) {
+      pathname.startsWith("/api/") && !["/api/admin/view-as", "/api/chat", "/api/login", "/api/speed", "/api/tagcheck"].includes(pathname)) {
     return NextResponse.json({ error: "Read-only while viewing as someone else. Stop viewing as them to make changes." }, { status: 403 });
   }
 

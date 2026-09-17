@@ -18,13 +18,16 @@ export default async function SearchTermsAndKeywords({ params, searchParams }: {
   const [terms, keywords, brands] = await Promise.all([
     keywordsView ? [] : q<any>(`
       SELECT s.term, c.name AS campaign, s.match_source, SUM(s.impressions)::float AS impressions, SUM(s.clicks)::float AS clicks,
-             (SUM(s.cost_micros) / 1e6)::float AS spend, SUM(s.conversions)::float AS conversions
+             (SUM(s.cost_micros) / 1e6)::float AS spend, SUM(s.conversions)::float AS conversions,
+             MAX(v.avg_monthly)::float AS monthly
         FROM search_terms s LEFT JOIN campaigns c ON c.client_id = s.client_id AND c.campaign_id = s.campaign_id
+        LEFT JOIN keyword_volumes v ON v.client_id = s.client_id AND v.keyword = lower(s.term)
        WHERE s.client_id = $1 GROUP BY s.term, c.name, s.match_source`, [client.id]),
     keywordsView ? q<any>(`
       SELECT k.text, k.match_type, k.status, c.name AS campaign, k.quality_score, k.expected_ctr, k.ad_relevance, k.landing_page_experience,
-             k.clicks::float, (k.cost_micros / 1e6)::float AS spend, k.conversions::float
+             k.clicks::float, (k.cost_micros / 1e6)::float AS spend, k.conversions::float, v.avg_monthly::float AS monthly
         FROM keywords k LEFT JOIN campaigns c ON c.client_id = k.client_id AND c.campaign_id = k.campaign_id
+        LEFT JOIN keyword_volumes v ON v.client_id = k.client_id AND v.keyword = lower(k.text)
        WHERE k.client_id = $1`, [client.id]) : [],
     brandTerms(client.id),
   ]);
@@ -45,6 +48,7 @@ export default async function SearchTermsAndKeywords({ params, searchParams }: {
           columns={[
             { key: "text", label: "Keyword", sub: "match_type" },
             { key: "campaign", label: "Campaign" },
+            { key: "monthly", label: "Monthly searches", format: "count", hint: "Keyword Planner, where the campaigns target" },
             { key: "quality_score", label: "Quality", format: "count" },
             { key: "why", label: "CTR · ad · page", hint: "Google's own reasons: expected click-through, ad relevance, landing page experience" },
             { key: "clicks", label: "Clicks", format: "count" },
@@ -66,6 +70,7 @@ export default async function SearchTermsAndKeywords({ params, searchParams }: {
           columns={[
             { key: "term", label: "Search term", sub: "campaign" },
             { key: "result", label: "Result" },
+            { key: "monthly", label: "Monthly searches", format: "count", hint: "Keyword Planner, where the campaigns target" },
             { key: "impressions", label: "Impr.", format: "count" },
             { key: "clicks", label: "Clicks", format: "count" },
             { key: "spend", label: "Spend", format: "money" },

@@ -28,7 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         clients={clients.map((c) => ({
           id: c.id, name: c.name, urgent: byClient[c.id] ?? 0,
           ads: Boolean(c.ads_customer_id), analytics: Boolean(c.ga4_property_id),
-          searchConsole: Boolean(c.gsc_site_url), tagManager: Boolean(c.gtm_container_id),
+          searchConsole: Boolean(c.gsc_site_url), tagManager: Boolean(c.gtm_container_id), businessProfile: Boolean(c.gbp_location_id),
         }))}
       />
       <main className="main">

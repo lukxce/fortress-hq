@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest) {
   const me = await currentUser();
 
   // Managers are folders, not spendable accounts — they can never be connected.
-  const rows = await q<{ id: number; provider: "ads" | "ga4" | "gsc" | "gtm" }>(
+  const rows = await q<{ id: number; provider: "ads" | "ga4" | "gsc" | "gtm" | "gbp" }>(
     `SELECT id, provider FROM inventory
       WHERE id = ANY($1::int[]) AND status <> 'revoked'
         AND NOT (provider = 'ads' AND is_manager)

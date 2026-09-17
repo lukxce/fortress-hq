@@ -81,6 +81,7 @@ export default async function ProjectSettings({ params }: { params: Promise<{ id
           { provider: "ga4", label: "Analytics property", current: current("ga4"), options: options("ga4"), adds: "Every visit and event, all channels." },
           { provider: "gsc", label: "Search Console site", current: current("gsc"), options: options("gsc"), adds: "Organic searches and pages." },
           { provider: "gtm", label: "Tag Manager container", current: current("gtm"), options: options("gtm"), adds: "The tags that do the tracking." },
+          { provider: "gbp", label: "Business Profile location", current: current("gbp"), options: options("gbp"), adds: "Calls, directions, website clicks, local searches and reviews." },
         ]} />
       </div>
 

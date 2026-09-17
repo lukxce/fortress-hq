@@ -14,7 +14,9 @@ export function ConnectionPanel({
   const [busy, setBusy] = useState(false);
   const router = useRouter();
 
-  const missing = access.filter((a) => !a.canRead);
+  const core = access.filter((a) => a.key !== "gbp");
+  const business = access.find((a) => a.key === "gbp");
+  const missing = core.filter((a) => !a.canRead);
   const allGranted = missing.length === 0;
 
   async function disconnect() {
@@ -36,7 +38,7 @@ export function ConnectionPanel({
           <p className="meta">{email ?? "connected"}</p>
         </div>
         <span className={`pill ${allGranted ? "pill-good" : "pill-warn"}`}>
-          {allGranted ? "all four granted" : `${missing.length} not granted`}
+          {allGranted ? "all four granted" : `${missing.length} not granted`}{business?.canRead ? " · Business Profile" : ""}
         </span>
       </div>
 
@@ -70,6 +72,11 @@ export function ConnectionPanel({
         <a href="/api/auth/google" className={`btn ${allGranted ? "btn-ghost" : "btn-accent"}`}>
           {allGranted ? "Re-authorise" : "Grant the missing access"}
         </a>
+        {!business?.canRead && (
+          <a href="/api/auth/google?with=business" className="btn btn-ghost" title="Asks Google for Business Profile access as well">
+            Connect Business Profile
+          </a>
+        )}
         <button className="btn btn-quiet btn-sm" onClick={disconnect} disabled={busy}>
           {busy ? "Disconnecting…" : "Disconnect"}
         </button>

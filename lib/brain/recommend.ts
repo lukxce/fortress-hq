@@ -30,7 +30,7 @@ const SYSTEM = `You write the "What to change" list for an agency operator runni
 
 PRODUCTS
 
-Every recommendation names the product whose settings change: ads, analytics, search_console, tag_manager — or cross when the fix only makes sense reading two together (a Search Console query with no paid coverage, a landing page that converts organic visitors but not paid ones). Each finding carries its product. Do not reduce the list to Google Ads when the findings show work in the other products: a broken key event in Analytics or a page losing organic clicks belongs on the list on its own merits. For Analytics, Search Console and Tag Manager the steps name those tools' menus (for example "Admin → Data streams → the stream → Configure tag settings → List unwanted referrals"). Buttons exist only for Google Ads.
+Every recommendation names the product whose settings change: ads, analytics, search_console, tag_manager, business_profile (the Google Business Profile), website (the site itself: speed, pages) — or cross when the fix only makes sense reading two together (a Search Console query with no paid coverage, a landing page that converts organic visitors but not paid ones). Each finding carries its product. Do not reduce the list to Google Ads when the findings show work in the other products: a broken key event in Analytics or a page losing organic clicks belongs on the list on its own merits. For Analytics, Search Console and Tag Manager the steps name those tools' menus (for example "Admin → Data streams → the stream → Configure tag settings → List unwanted referrals"). Buttons exist only for Google Ads.
 
 THE RULE
 
@@ -101,7 +101,7 @@ const OUTPUT_SCHEMA = {
         type: "object",
         properties: {
           title: { type: "string" },
-          product: { type: "string", enum: ["ads", "analytics", "search_console", "tag_manager", "cross"] },
+          product: { type: "string", enum: ["ads", "analytics", "search_console", "tag_manager", "business_profile", "website", "cross"] },
           area: { type: "string", enum: ["tracking", "waste", "targeting", "budget", "bidding", "structure", "creative", "opportunity", "schedule"] },
           severity: { type: "string", enum: ["do_first", "worth_doing", "when_time"] },
           finding_ids: { type: "array", items: { type: "integer" } },
@@ -135,7 +135,7 @@ const Core = z.object({
   steps: z.array(z.string()).min(1),
   severity: z.enum(["do_first", "worth_doing", "when_time"]).catch("worth_doing"),
   area: z.string().catch("structure"),
-  product: z.enum(["ads", "analytics", "search_console", "tag_manager", "cross"]).catch("ads"),
+  product: z.enum(["ads", "analytics", "search_console", "tag_manager", "business_profile", "website", "cross"]).catch("ads"),
   finding_ids: z.array(z.number().int()).catch([]),
   do_by_days: z.number().int().min(0).max(120).catch(14),
   effort_minutes: z.number().int().min(1).max(600).catch(15),
@@ -157,7 +157,7 @@ export async function recommend(clientId: number): Promise<RunResult> {
   const findings: Finding[] = snap._findings;
   await storeFindings(clientId, findings);
 
-  const otherProducts = snap.client.connected.analytics || snap.client.connected.searchConsole;
+  const otherProducts = snap.client.connected.analytics || snap.client.connected.searchConsole || snap.client.connected.businessProfile;
   if (snap.baseline.conversions90 === 0 && !otherProducts) {
     // No conversions at all means no yardstick: every judgement below would be
     // meaningless. Say so rather than generate advice on top of nothing.

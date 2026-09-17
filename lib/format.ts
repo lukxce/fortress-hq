@@ -57,7 +57,7 @@ export const SEVERITY_LABEL = { do_first: "Do first", worth_doing: "Worth doing"
 export const SEVERITY_PILL = { do_first: "pill-bad", worth_doing: "pill-warn", when_time: "pill" } as const;
 
 export const PRODUCT_LABEL: Record<string, string> = {
-  ads: "Google Ads", analytics: "Analytics", search_console: "Search Console", tag_manager: "Tag Manager", cross: "Across products",
+  ads: "Google Ads", analytics: "Analytics", search_console: "Search Console", tag_manager: "Tag Manager", business_profile: "Business Profile", website: "Website", cross: "Across products",
 };
 
 export const AREA_LABEL: Record<string, string> = {

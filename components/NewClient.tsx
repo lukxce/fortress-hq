@@ -9,16 +9,16 @@ type Candidate = {
 };
 
 type Suggestion = {
-  provider: "ga4" | "gsc" | "gtm";
+  provider: "ga4" | "gsc" | "gtm" | "gbp";
   inventory_id: number;
   label: string;
   reason: string;
   confidence: "high" | "low";
 };
 
-const PROVIDER_LABEL = { ga4: "Analytics", gsc: "Search Console", gtm: "Tag Manager" } as const;
+const PROVIDER_LABEL = { ga4: "Analytics", gsc: "Search Console", gtm: "Tag Manager", gbp: "Business Profile" } as const;
 
-type Option = { id: number; provider: "ga4" | "gsc" | "gtm"; display_name: string; provider_id: string; domain: string | null };
+type Option = { id: number; provider: "ga4" | "gsc" | "gtm" | "gbp"; display_name: string; provider_id: string; domain: string | null };
 
 export function NewClient({ candidates, options }: { candidates: Candidate[]; options: Option[] }) {
   const [adsId, setAdsId] = useState<number | null>(null);
@@ -27,7 +27,7 @@ export function NewClient({ candidates, options }: { candidates: Candidate[]; op
   const [target, setTarget] = useState("");
   const [budget, setBudget] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [chosen, setChosen] = useState<Record<"ga4" | "gsc" | "gtm", number | null>>({ ga4: null, gsc: null, gtm: null });
+  const [chosen, setChosen] = useState<Record<"ga4" | "gsc" | "gtm" | "gbp", number | null>>({ ga4: null, gsc: null, gtm: null, gbp: null });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -45,7 +45,7 @@ export function NewClient({ candidates, options }: { candidates: Candidate[]; op
       // Pre-tick only the confident matches. A low-confidence guess that binds
       // itself silently makes the conversion cross-check compare two unrelated
       // businesses, which is worse than leaving the slot empty.
-      const pre = { ga4: null, gsc: null, gtm: null } as Record<"ga4" | "gsc" | "gtm", number | null>;
+      const pre = { ga4: null, gsc: null, gtm: null, gbp: null } as Record<"ga4" | "gsc" | "gtm" | "gbp", number | null>;
       for (const x of s) if (x.confidence === "high") pre[x.provider] = x.inventory_id;
       setChosen(pre);
     } catch { /* suggestions are a convenience, not a requirement */ }
@@ -66,7 +66,7 @@ export function NewClient({ candidates, options }: { candidates: Candidate[]; op
           targetCpa: goalType === "cpa" && target ? Number(target) : null,
           targetRoas: goalType === "roas" && target ? Number(target) : null,
           monthlyBudget: budget ? Number(budget) : null,
-          bindings: (["ga4", "gsc", "gtm"] as const)
+          bindings: (["ga4", "gsc", "gtm", "gbp"] as const)
             .filter((p) => chosen[p] != null)
             .map((p) => {
               const s = suggestions.find((x) => x.provider === p && x.inventory_id === chosen[p]);
@@ -147,7 +147,7 @@ export function NewClient({ candidates, options }: { candidates: Candidate[]; op
 
           <div className="bindings">
             <span className="label">Also connect</span>
-            {(["ga4", "gsc", "gtm"] as const).map((p) => {
+            {(["ga4", "gsc", "gtm", "gbp"] as const).map((p) => {
               const s = suggestions.find((x) => x.provider === p);
               const list = options.filter((o) => o.provider === p);
               return (

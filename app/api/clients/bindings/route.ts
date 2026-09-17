@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 const Binding = z.object({
   client: z.number().int(),
-  provider: z.enum(["ads", "ga4", "gsc", "gtm"]),
+  provider: z.enum(["ads", "ga4", "gsc", "gtm", "gbp"]),
   inventoryId: z.number().int().nullable(),
 });
 

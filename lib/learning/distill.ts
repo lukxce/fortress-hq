@@ -40,7 +40,7 @@ const SCHEMA = {
         type: "object",
         properties: {
           text: { type: "string" },
-          product: { type: "string", enum: ["all", "ads", "analytics", "search_console", "tag_manager"] },
+          product: { type: "string", enum: ["all", "ads", "analytics", "search_console", "tag_manager", "business_profile", "website"] },
           pattern_ids: { type: "array", items: { type: "integer" } },
           challenges_knowledge: { type: "string" },
         },

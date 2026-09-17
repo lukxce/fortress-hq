@@ -30,6 +30,7 @@ export default async function SearchOpportunities({ params }: { params: Promise<
     brandTerms(client.id),
     searchConsole(client.id),
   ]);
+  const volume = new Map((await q<any>(`SELECT keyword, avg_monthly::float AS v FROM keyword_volumes WHERE client_id = $1`, [client.id])).map((r) => [r.keyword, r.v]));
   if (!queries.length) {
     return (
       <div className="stack rise">
@@ -46,7 +47,7 @@ export default async function SearchOpportunities({ params }: { params: Promise<
     const term = paid.get(n);
     const coverage = kw.has(n) ? "Keyword" : term ? "Ads show on it" : "Not covered by ads";
     return {
-      query: r.query, impressions: r.impressions, clicks: r.clicks, position: r.position,
+      query: r.query, monthly: volume.get(String(r.query).toLowerCase()) ?? null, impressions: r.impressions, clicks: r.clicks, position: r.position,
       brand: containsBrand(r.query, brands) ? "Brand" : "Not brand",
       coverage, paidClicks: term?.clicks ?? null, paidConversions: term?.conversions ?? null,
       band: r.position <= 3 ? "Top 3" : r.position <= 7.5 ? "Page one" : r.position <= 20 ? "Just off page one" : "Deeper",
@@ -72,6 +73,7 @@ export default async function SearchOpportunities({ params }: { params: Promise<
           columns={[
             { key: "query", label: "Search" },
             { key: "brand", label: "Brand" },
+            { key: "monthly", label: "Monthly searches", format: "count", hint: "Keyword Planner, where the campaigns target" },
             { key: "band", label: "Organic rank" },
             { key: "position", label: "Position", format: "position" },
             { key: "impressions", label: "Organic impressions", format: "count" },

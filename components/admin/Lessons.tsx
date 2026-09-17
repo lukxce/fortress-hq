@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 type Lesson = { id: number; text: string; product: string; active: boolean; created_at: string; author: string | null };
 
 const PRODUCTS = [
-  ["all", "All products"], ["ads", "Google Ads"], ["analytics", "Analytics"], ["search_console", "Search Console"], ["tag_manager", "Tag Manager"],
+  ["all", "All products"], ["ads", "Google Ads"], ["analytics", "Analytics"], ["search_console", "Search Console"], ["tag_manager", "Tag Manager"], ["business_profile", "Business Profile"], ["website", "Website"],
 ] as const;
 const label = (p: string) => PRODUCTS.find(([k]) => k === p)?.[1] ?? p;
 

@@ -16,7 +16,7 @@ export type Area =
   | "tracking" | "waste" | "targeting" | "budget" | "bidding"
   | "structure" | "creative" | "opportunity" | "schedule";
 
-export type Product = "ads" | "analytics" | "search_console" | "tag_manager" | "cross";
+export type Product = "ads" | "analytics" | "search_console" | "tag_manager" | "business_profile" | "website" | "cross";
 
 export type EvidenceTable = { columns: string[]; rows: (string | number | null)[][] };
 

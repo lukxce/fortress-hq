@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { SignOut } from "./SignOut";
 
-type ClientItem = { id: number; name: string; urgent: number; ads: boolean; analytics: boolean; searchConsole: boolean; tagManager: boolean };
+type ClientItem = { id: number; name: string; urgent: number; ads: boolean; analytics: boolean; searchConsole: boolean; tagManager: boolean; businessProfile: boolean };
 
 const I = {
   overview: <path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z" />,
@@ -58,6 +58,7 @@ export function Sidebar({ clients, admin, identity, email }: { clients: ClientIt
     { title: "Google Ads", connected: current?.ads, links: [
       { href: `${base}/ads`, label: "Campaigns", icon: I.campaigns, exact: true },
       { href: `${base}/ads/search-terms`, label: "Search terms & keywords", icon: I.search },
+      { href: `${base}/ads/keywords`, label: "Keyword research", icon: I.opportunity },
       { href: `${base}/experiments`, label: "Experiments", icon: I.experiments },
       { href: `${base}/builder`, label: "New campaign", icon: I.builder },
     ] },
@@ -74,6 +75,12 @@ export function Sidebar({ clients, admin, identity, email }: { clients: ClientIt
     { title: "Tag Manager", connected: current?.tagManager, links: [
       { href: `${base}/tag-manager`, label: "Tags & health", icon: I.tags },
       { href: `${base}/tracking`, label: "Conversion tracking", icon: I.tracking },
+    ] },
+    { title: "Business Profile", connected: current?.businessProfile, links: [
+      { href: `${base}/business-profile`, label: "Calls, searches & reviews", icon: I.tracking },
+    ] },
+    { title: "Website", links: [
+      { href: `${base}/website`, label: "Page speed", icon: I.traffic },
     ] },
     { title: null, links: [{ href: `${base}/settings`, label: "Project settings", icon: I.settings }] },
   ] : [];

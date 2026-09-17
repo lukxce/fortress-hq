@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 // leaving; then the rest.
 const AREA_ORDER = ["tracking", "waste", "budget", "bidding", "schedule", "targeting", "opportunity", "creative", "structure"];
 
-const PRODUCTS = ["ads", "analytics", "search_console", "tag_manager", "cross"];
+const PRODUCTS = ["ads", "analytics", "search_console", "tag_manager", "business_profile", "website", "cross"];
 
 export default async function WhatToChange({ params, searchParams }: {
   params: Promise<{ id: string }>; searchParams: Promise<{ product?: string }>;

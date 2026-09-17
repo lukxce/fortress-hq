@@ -2,6 +2,7 @@ import { q } from "@/lib/db";
 import type { Finding } from "./findings";
 import { binomCdf, testSegment } from "./stats";
 import { brandTerms, containsBrand } from "./brand";
+import { speedFindings, businessProfileFindings, keywordFindings } from "./extras";
 
 // Analytics, Search Console and Tag Manager judged in their own right.
 //
@@ -380,7 +381,7 @@ export async function siteTags(clientId: number): Promise<Finding[]> {
 }
 
 export async function productFindings(clientId: number): Promise<Finding[]> {
-  const groups = await Promise.all([analytics(clientId), searchConsole(clientId), tagManager(clientId), siteTags(clientId)]
+  const groups = await Promise.all([analytics(clientId), searchConsole(clientId), tagManager(clientId), siteTags(clientId), speedFindings(clientId), businessProfileFindings(clientId), keywordFindings(clientId)]
     .map((p) => p.catch((err) => { console.error("[product findings]", (err as Error).message); return [] as Finding[]; })));
   return groups.flat();
 }

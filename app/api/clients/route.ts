@@ -23,7 +23,7 @@ const Body = z.object({
   targetRoas: z.number().positive().nullable().optional(),
   monthlyBudget: z.number().positive().nullable().optional(),
   bindings: z.array(z.object({
-    provider: z.enum(["ga4", "gsc", "gtm"]),
+    provider: z.enum(["ga4", "gsc", "gtm", "gbp"]),
     inventory_id: z.number().int(),
     bound_by: z.enum(["auto", "confirmed", "manual"]).default("manual"),
   })).default([]),
