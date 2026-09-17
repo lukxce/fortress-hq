@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { BUSINESS_PROFILE_ENABLED } from "@/lib/features";
 
 export type InventoryRow = {
   id: number;
@@ -24,7 +25,7 @@ const GROUPS = [
   { key: "ga4", label: "Analytics", hint: "GA4 properties." },
   { key: "gsc", label: "Search Console", hint: "Verified properties." },
   { key: "gtm", label: "Tag Manager", hint: "Containers." },
-  { key: "gbp", label: "Business Profile", hint: "Business locations. Connect Business Profile above to see them." },
+  ...(BUSINESS_PROFILE_ENABLED ? [{ key: "gbp" as const, label: "Business Profile", hint: "Business locations. Connect Business Profile above to see them." }] : []),
 ] as const;
 
 export function PickList({ initial }: { initial: InventoryRow[] }) {

@@ -16,6 +16,7 @@ import {
 import { syncGa4Events, syncGa4Dims, syncGscDeep } from "./products";
 import { syncChangeEvents } from "./changes";
 import { syncGbp } from "./gbp";
+import { BUSINESS_PROFILE_ENABLED } from "@/lib/features";
 import { syncKeywordPlanner } from "./keywords";
 import { runTagCheck } from "@/lib/tracking/tagcheck";
 
@@ -102,7 +103,7 @@ export async function syncClient(clientId: number): Promise<SyncReport> {
   if (client.gsc_site_url) await step("search console", () => syncGsc(auth, client));
   if (client.gsc_site_url) await step("search console pages", () => syncGscDeep(auth, client));
   if (client.gtm_container_id) await step("tag manager", () => syncGtm(auth, client));
-  if (client.gbp_location_id) await step("business profile", () => syncGbp(auth, client));
+  if (BUSINESS_PROFILE_ENABLED && client.gbp_location_id) await step("business profile", () => syncGbp(auth, client));
   // Reads the live website and containers for every Google tag the project should have.
   await step("tags on the site", async () => (await runTagCheck(clientId)).pages.length);
   // Derived from what was just written, so it runs last and costs no API calls.

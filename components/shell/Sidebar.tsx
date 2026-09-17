@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { SignOut } from "./SignOut";
+import { BUSINESS_PROFILE_ENABLED } from "@/lib/features";
 
 type ClientItem = { id: number; name: string; urgent: number; ads: boolean; analytics: boolean; searchConsole: boolean; tagManager: boolean; businessProfile: boolean };
 
@@ -76,9 +77,9 @@ export function Sidebar({ clients, admin, identity, email }: { clients: ClientIt
       { href: `${base}/tag-manager`, label: "Tags & health", icon: I.tags },
       { href: `${base}/tracking`, label: "Conversion tracking", icon: I.tracking },
     ] },
-    { title: "Business Profile", connected: current?.businessProfile, links: [
+    ...(BUSINESS_PROFILE_ENABLED ? [{ title: "Business Profile", connected: current?.businessProfile, links: [
       { href: `${base}/business-profile`, label: "Calls, searches & reviews", icon: I.tracking },
-    ] },
+    ] }] : []),
     { title: "Website", links: [
       { href: `${base}/website`, label: "Page speed", icon: I.traffic },
     ] },

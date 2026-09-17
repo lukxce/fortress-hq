@@ -1,3 +1,5 @@
+import { BUSINESS_PROFILE_ENABLED } from "@/lib/features";
+
 // Requested in full at the first consent. Adding a scope later forces
 // re-authentication, and the roadmap needs writes (conversion actions in Ads,
 // key events in GA4, tags in Tag Manager) even though Phase 1 only reads.
@@ -57,13 +59,13 @@ export const PRODUCT_SCOPES = [
     write: [`${A}tagmanager.edit.containers`, `${A}tagmanager.publish`],
     why: "Container contents, and whether anyone changed them overnight.",
   },
-  {
+  ...(!BUSINESS_PROFILE_ENABLED ? [] : [{
     key: "gbp" as const,
     label: "Business Profile",
     read: [BUSINESS_SCOPE],
     write: [],
     why: "Calls, direction requests, website clicks, what people searched to find the business, and reviews.",
-  },
+  }]),
 ];
 
 export type ProductAccess = {

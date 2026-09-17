@@ -72,7 +72,7 @@ export function ConnectionPanel({
         <a href="/api/auth/google" className={`btn ${allGranted ? "btn-ghost" : "btn-accent"}`}>
           {allGranted ? "Re-authorise" : "Grant the missing access"}
         </a>
-        {!business?.canRead && (
+        {business && !business.canRead && (
           <a href="/api/auth/google?with=business" className="btn btn-ghost" title="Asks Google for Business Profile access as well">
             Connect Business Profile
           </a>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { authUrl, oauthConfigured } from "@/lib/google/auth";
+import { BUSINESS_PROFILE_ENABLED } from "@/lib/features";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,6 @@ export async function GET(req: Request) {
     maxAge: 600,
   });
 
-  const business = new URL(req.url).searchParams.get("with") === "business";
+  const business = BUSINESS_PROFILE_ENABLED && new URL(req.url).searchParams.get("with") === "business";
   return NextResponse.redirect(authUrl(state, { business }));
 }

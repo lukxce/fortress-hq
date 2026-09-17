@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { BUSINESS_PROFILE_ENABLED } from "@/lib/features";
 
 type Candidate = {
   id: number; provider_id: string; display_name: string;
@@ -147,7 +148,7 @@ export function NewClient({ candidates, options }: { candidates: Candidate[]; op
 
           <div className="bindings">
             <span className="label">Also connect</span>
-            {(["ga4", "gsc", "gtm", "gbp"] as const).map((p) => {
+            {(["ga4", "gsc", "gtm", "gbp"] as const).filter((p) => p !== "gbp" || BUSINESS_PROFILE_ENABLED).map((p) => {
               const s = suggestions.find((x) => x.provider === p);
               const list = options.filter((o) => o.provider === p);
               return (

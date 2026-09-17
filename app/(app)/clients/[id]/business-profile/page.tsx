@@ -1,4 +1,6 @@
+import { notFound } from "next/navigation";
 import { q } from "@/lib/db";
+import { BUSINESS_PROFILE_ENABLED } from "@/lib/features";
 import { pageClient } from "@/lib/page";
 import { businessProfileFindings } from "@/lib/engine/extras";
 import { count, dateShort } from "@/lib/format";
@@ -15,6 +17,7 @@ const ACTIONS = [
 ] as const;
 
 export default async function BusinessProfile({ params }: { params: Promise<{ id: string }> }) {
+  if (!BUSINESS_PROFILE_ENABLED) notFound();
   const client = await pageClient(params);
   if (!client.gbp_location_id) {
     return (
