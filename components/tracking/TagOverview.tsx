@@ -88,7 +88,7 @@ export function TagOverview({ clientId, check, checkedAt, connected }: {
                 {rows.map((r) => (
                   <tr key={r.product}>
                     <td className="cell-name">{r.product}</td>
-                    <td className="num">{r.id ?? "—"}</td>
+                    <td className="mono">{r.id ?? "—"}</td>
                     <td><span className={`pill ${!r.id && check.idsUnavailable && r.status !== "not_connected" ? "pill" : STATUS[r.status].pill}`}>{!r.id && check.idsUnavailable && r.status !== "not_connected" ? "Unknown" : STATUS[r.status].label}</span><div className="cell-sub" style={{ maxWidth: 420, whiteSpace: "normal" }}>{r.note}</div>{r.key && offer(r.key)}</td>
                     <td className="meta">{r.data}</td>
                   </tr>
@@ -105,7 +105,7 @@ export function TagOverview({ clientId, check, checkedAt, connected }: {
                   {check.ads.actions.map((a) => (
                     <tr key={a.name}>
                       <td><div className="cell-name">{a.name}</div><div className="cell-sub">{a.primary ? "Primary — counts toward bidding" : "Secondary"}</div></td>
-                      <td className="num">{a.label ?? "—"}</td>
+                      <td className="mono">{a.label ?? "—"}</td>
                       <td>{a.found ? <span className="pill pill-good">Found</span> : <span className={`pill ${a.lastReceived ? "pill-warn" : "pill-bad"}`}>{a.lastReceived ? "Not found, still receiving" : "Not found"}</span>}</td>
                       <td className="meta">{a.lastReceived ? dateShort(a.lastReceived) : "never"}</td>
                     </tr>
