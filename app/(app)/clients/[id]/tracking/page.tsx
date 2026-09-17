@@ -25,7 +25,7 @@ export default async function Tracking({ params }: { params: Promise<{ id: strin
           <h1>Is the number worth trusting?</h1>
           <p className="lede">
             Every figure in Fortress is downstream of what is counted as a conversion, so this is checked first —
-            {problems ? <> and <span className="mark">{problems} thing{problems === 1 ? " is" : "s are"} wrong</span>.</> : " and nothing is badly wrong."}
+            {problems ? <> and <strong>{problems} thing{problems === 1 ? " is" : "s are"} wrong</strong>.</> : " and nothing is badly wrong."}
           </p>
         </div>
       </header>

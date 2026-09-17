@@ -17,6 +17,7 @@ import { ANALYTICS } from "./knowledge/analytics";
 import { SEARCH_CONSOLE } from "./knowledge/searchconsole";
 import { TAG_MANAGER } from "./knowledge/tagmanager";
 import { WEBSITE } from "./knowledge/website";
+import { KEYWORDS } from "./knowledge/keywords";
 
 // Claude Opus 5, pinned: analysis quality must not depend on a default changed
 // elsewhere for unrelated reasons.
@@ -33,7 +34,7 @@ export function brainConfigured(): boolean {
 // cached prefix costs a tenth of a fresh one.
 export const KNOWLEDGE = [
   OPERATING_CONTEXT, SMALL_ACCOUNTS, MECHANICS, REPORTING, LEADGEN, PMAX, AI_MAX, BENCHMARKS, DIAGNOSTICS,
-  TAG_MANAGER, ANALYTICS, SEARCH_CONSOLE, WEBSITE,
+  KEYWORDS, TAG_MANAGER, ANALYTICS, SEARCH_CONSOLE, WEBSITE,
   WRITING,
 ].join("\n\n");
 

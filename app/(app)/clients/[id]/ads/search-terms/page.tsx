@@ -40,6 +40,7 @@ export default async function SearchTermsAndKeywords({ params, searchParams }: {
         <div className="tabs">
           <Link href={`/clients/${client.id}/ads/search-terms` as never} className={`tab${!keywordsView ? " active" : ""}`}>Search terms</Link>
           <Link href={`/clients/${client.id}/ads/search-terms?view=keywords` as never} className={`tab${keywordsView ? " active" : ""}`}>Keywords</Link>
+          <Link href={`/clients/${client.id}/ads/keywords` as never} className="tab">Ideas</Link>
         </div>
       </ProductHead>
       {keywordsView ? (

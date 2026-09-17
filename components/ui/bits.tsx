@@ -31,7 +31,7 @@ export function StatCard({ metric, currency, versus }: { metric: Metric; currenc
 }
 
 /** Spend per day; days with no conversions render grey. */
-export function SpendBars({ series, currency }: { series: { date: string; spend: number; conversions: number }[]; currency: string | null }) {
+export function SpendBars({ series, currency, legend = true }: { series: { date: string; spend: number; conversions: number }[]; currency: string | null; legend?: boolean }) {
   if (!series.length) return <p className="meta">No spend in this period.</p>;
   const max = Math.max(...series.map((s) => s.spend), 1);
   return (
@@ -47,10 +47,10 @@ export function SpendBars({ series, currency }: { series: { date: string; spend:
         ))}
       </div>
       <div className="bar-axis"><span>{series[0].date}</span><span>{series[series.length - 1].date}</span></div>
-      <div className="chart-legend" style={{ marginTop: 10 }}>
+      {legend && <div className="chart-legend" style={{ marginTop: 10 }}>
         <span><i style={{ background: "var(--blue)" }} />Spend on days with conversions</span>
         <span><i style={{ background: "var(--ink-4)", opacity: 0.55 }} />Days with no conversions</span>
-      </div>
+      </div>}
     </div>
   );
 }

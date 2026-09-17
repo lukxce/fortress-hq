@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { money, count, pct } from "@/lib/format";
 
 export type Column = {
@@ -19,7 +19,7 @@ type Row = Record<string, string | number | null>;
  * filter over a column's values. Formats are named rather than passed as
  * functions, so server pages can hand it plain rows.
  */
-export function DataTable({ columns, rows, search, filter, currency, empty = "Nothing to show.", initialSort, limit = 500 }: {
+export function DataTable({ columns, rows, search, filter, currency, empty = "Nothing to show.", initialSort, limit = 50 }: {
   columns: Column[]; rows: Row[]; search?: string; currency?: string | null; empty?: string;
   filter?: { key: string; label: string };
   initialSort?: { key: string; dir: 1 | -1 };
@@ -27,6 +27,8 @@ export function DataTable({ columns, rows, search, filter, currency, empty = "No
 }) {
   const [query, setQuery] = useState("");
   const [pick, setPick] = useState("all");
+  const [shownCount, setShownCount] = useState(limit);
+  const [dense, setDense] = useDensity();
   const [sort, setSort] = useState(initialSort ?? { key: columns.find((c) => c.format && c.format !== "text" && c.format !== "url")?.key ?? columns[0].key, dir: -1 as 1 | -1 });
 
   const options = useMemo(() => filter ? [...new Set(rows.map((r) => r[filter.key]).filter((v) => v != null && v !== ""))].map(String).sort() : [], [rows, filter]);
@@ -46,6 +48,8 @@ export function DataTable({ columns, rows, search, filter, currency, empty = "No
       });
   }, [rows, query, pick, sort, columns, filter]);
 
+  useEffect(() => { setShownCount(limit); }, [query, pick, sort, limit]);
+
   const cell = (c: Column, v: string | number | null) => {
     if (v == null || v === "") return "—";
     switch (c.format) {
@@ -62,20 +66,27 @@ export function DataTable({ columns, rows, search, filter, currency, empty = "No
 
   return (
     <div className="card">
-      {(search || filter) && (
-        <div className="table-tools">
-          {search && <input type="search" placeholder={search} value={query} onChange={(e) => setQuery(e.target.value)} />}
-          {filter && options.length > 1 && (
-            <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label={filter.label}>
-              <option value="all">{filter.label}: all</option>
-              {options.map((o) => <option key={o} value={o}>{o}</option>)}
-            </select>
-          )}
-          <span className="meta" style={{ marginLeft: "auto" }}>{Math.min(shown.length, limit)} of {rows.length}</span>
+      <div className="table-tools">
+        {search && <input type="search" placeholder={search} value={query} onChange={(e) => setQuery(e.target.value)} />}
+        <span className="count-inline">{shown.length === rows.length ? `${rows.length.toLocaleString()} rows` : `${shown.length.toLocaleString()} of ${rows.length.toLocaleString()}`}</span>
+        {filter && options.length > 1 && options.length <= 8 && (
+          <div className="chips">
+            <button className={`chip${pick === "all" ? " on" : ""}`} onClick={() => setPick("all")}>{filter.label}: all</button>
+            {options.map((o) => <button key={o} className={`chip${pick === o ? " on" : ""}`} onClick={() => setPick(pick === o ? "all" : o)}>{o}</button>)}
+          </div>
+        )}
+        {filter && options.length > 8 && (
+          <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label={filter.label}>
+            <option value="all">{filter.label}: all</option>
+            {options.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        )}
+        <div className="right">
+          <button className="btn btn-quiet btn-sm" onClick={() => setDense(!dense)} title="Row density">{dense ? "Comfortable" : "Compact"}</button>
         </div>
-      )}
-      <div className="table-wrap">
-        <table>
+      </div>
+      <div className="table-wrap scroll">
+        <table className={dense ? "dense" : undefined}>
           <thead>
             <tr>
               {columns.map((c) => (
@@ -88,7 +99,7 @@ export function DataTable({ columns, rows, search, filter, currency, empty = "No
             </tr>
           </thead>
           <tbody>
-            {shown.slice(0, limit).map((r, i) => (
+            {shown.slice(0, shownCount).map((r, i) => (
               <tr key={i}>
                 {columns.map((c, j) => (
                   <td key={c.key} className={numeric(c) ? "num r" : undefined} title={c.format === "url" ? String(r[c.key] ?? "") : undefined}>
@@ -102,8 +113,22 @@ export function DataTable({ columns, rows, search, filter, currency, empty = "No
           </tbody>
         </table>
       </div>
+      {shown.length > shownCount && (
+        <div className="table-more">
+          <button className="btn btn-sm" onClick={() => setShownCount((n) => n + 50)}>Show 50 more · {(shown.length - shownCount).toLocaleString()} left</button>
+        </div>
+      )}
     </div>
   );
+}
+
+/** Compact or comfortable rows, remembered per browser. */
+export function useDensity(): [boolean, (v: boolean) => void] {
+  const [dense, set] = useState(false);
+  useEffect(() => {
+    try { set(localStorage.getItem("fortress:dense") === "1"); } catch { /* storage unavailable */ }
+  }, []);
+  return [dense, (v: boolean) => { set(v); try { localStorage.setItem("fortress:dense", v ? "1" : "0"); } catch { /* ignore */ } }];
 }
 
 function shortUrl(u: string) {

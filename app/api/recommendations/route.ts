@@ -13,8 +13,9 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "status must be done, dismissed or open" }, { status: 400 });
   }
   try {
-    await q(`UPDATE recommendations SET status = $3, updated_at = now() WHERE id = $1 AND client_id = $2`,
-      [Number(b.id), client.id, b.status]);
+    const reason = ["not_relevant", "already_done", "wrong"].includes(b?.reason) ? b.reason : null;
+    await q(`UPDATE recommendations SET status = $3, dismiss_reason = $4, updated_at = now() WHERE id = $1 AND client_id = $2`,
+      [Number(b.id), client.id, b.status, b.status === "dismissed" ? reason : null]);
     // Dismissing a recommendation withdraws its un-started experiment.
     if (b.status === "dismissed") {
       await q(`DELETE FROM experiments WHERE recommendation_id = $1 AND client_id = $2 AND status = 'proposed'`, [Number(b.id), client.id]);

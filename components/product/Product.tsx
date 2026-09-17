@@ -19,7 +19,6 @@ export function ProductHead({ product, title, clientId, meta, children }: {
       </div>
       <div className="row">
         {children}
-        <JobButton clientId={clientId} job="sync" label="Sync now" busyLabel="Pulling…" />
       </div>
     </header>
   );
@@ -58,7 +57,7 @@ export function FindingList({ findings, title = "What stands out", none }: { fin
     <div className="card">
       <div className="card-head">
         <h2>{title}</h2>
-        <span className="meta">Measured from the data; nothing here is written by the AI.</span>
+        <i className="info-tip" title="Measured from the data by code, tested against this project's own history. Nothing here is written by the AI.">i</i>
       </div>
       {findings.length ? (
         <ul className="audit">

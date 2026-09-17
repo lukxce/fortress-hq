@@ -28,8 +28,9 @@ export default async function KeywordResearch({ params, searchParams }: {
       <ProductHead product="ads" title="Keyword research" clientId={client.id}
         meta={fetched ? `Keyword Planner · ${t?.geo?.length ? `${t.geo.length} targeted location${t.geo.length === 1 ? "" : "s"}` : "all locations"}${t?.languageGuessed ? " · language guessed" : ""} · refreshed weekly` : "Keyword Planner"}>
         <div className="tabs">
-          <Link href={`/clients/${client.id}/ads/keywords` as never} className={`tab${!existing ? " active" : ""}`}>New ideas · {ideas.length}</Link>
-          <Link href={`/clients/${client.id}/ads/keywords?view=existing` as never} className={`tab${existing ? " active" : ""}`}>Volumes for what you have · {volumes.length}</Link>
+          <Link href={`/clients/${client.id}/ads/search-terms` as never} className="tab">Search terms</Link>
+          <Link href={`/clients/${client.id}/ads/keywords` as never} className={`tab${!existing ? " active" : ""}`}>Ideas{ideas.length ? ` · ${ideas.length}` : ""}</Link>
+          <Link href={`/clients/${client.id}/ads/keywords?view=existing` as never} className={`tab${existing ? " active" : ""}`}>Volumes{volumes.length ? ` · ${volumes.length}` : ""}</Link>
         </div>
       </ProductHead>
       <p className="meta" style={{ margin: 0 }}>

@@ -21,6 +21,12 @@ export function AskBubble() {
   // A conversation belongs to one account.
   useEffect(() => { setLog([]); }, [clientId]);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [log, busy]);
+  // The phone's bottom bar opens it.
+  useEffect(() => {
+    const open = () => setOpen(true);
+    window.addEventListener("fortress:ask", open);
+    return () => window.removeEventListener("fortress:ask", open);
+  }, []);
 
   if (!clientId) return null;
 

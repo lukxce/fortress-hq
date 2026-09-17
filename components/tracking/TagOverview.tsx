@@ -125,9 +125,9 @@ export function TagOverview({ clientId, check, checkedAt, connected }: {
                 <p className="meta">{p.error ?? `The site answered ${p.status}`}. Anything on that page is unknown, not missing.</p></div></li>
             ))}
             {check.errors.map((e) => <li key={e} className="warn"><span className="mark">!</span><div className="body"><p className="meta">{e}</p></div></li>)}
-            <li className="info"><span className="mark">i</span><div className="body"><p className="meta">
+            {rows.some((r) => ["not_found", "receiving_but_not_found"].includes(r.status)) && <li className="info"><span className="mark">i</span><div className="body"><p className="meta">
               {check.consentModeSeen ? "A consent banner or consent mode was detected. " : ""}Tags that load only after cookie consent, or through server-side Tag Manager on the site&rsquo;s own domain, cannot be seen from outside. When a tag is not found but Google is still receiving data, that is the likely reason.
-            </p></div></li>
+            </p></div></li>}
           </ul>
         </>
       ) : (

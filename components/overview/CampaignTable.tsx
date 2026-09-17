@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { money, count, pct, TYPE_LABEL, STRATEGY_LABEL } from "@/lib/format";
 import { Delta } from "@/components/ui/bits";
+import { useDensity } from "@/components/ui/DataTable";
 
 export type CampaignRow = {
   id: string; name: string; status: string | null; type: string | null; strategy: string | null;
@@ -28,6 +29,7 @@ export function CampaignTable({ rows, currency, showClient = false }: { rows: Ca
   const [health, setHealth] = useState("all");
   const [client, setClient] = useState("all");
   const [sort, setSort] = useState<{ key: Key; dir: 1 | -1 }>({ key: "spend", dir: -1 });
+  const [dense, setDense] = useDensity();
 
   const types = useMemo(() => [...new Set(rows.map((r) => r.type).filter(Boolean))] as string[], [rows]);
   const clients = useMemo(() => [...new Set(rows.map((r) => r.client).filter(Boolean))] as string[], [rows]);
@@ -64,6 +66,7 @@ export function CampaignTable({ rows, currency, showClient = false }: { rows: Ca
     <div className="card">
       <div className="table-tools">
         <input type="search" placeholder="Search campaigns…" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <span className="count-inline">{shown.length} of {rows.length}</span>
         <div className="tabs" role="tablist">
           {(["running", "paused", "all"] as const).map((s) => (
             <button key={s} className={`tab${status === s ? " active" : ""}`} onClick={() => setStatus(s)}>
@@ -87,15 +90,19 @@ export function CampaignTable({ rows, currency, showClient = false }: { rows: Ca
           <option value="okay">Okay</option>
           <option value="good">Good</option>
         </select>
-        <span className="meta" style={{ marginLeft: "auto" }}>{shown.length} of {rows.length}</span>
+        <div className="right">
+          <button className="btn btn-quiet btn-sm" onClick={() => setDense(!dense)} title="Row density">{dense ? "Comfortable" : "Compact"}</button>
+        </div>
       </div>
-      <div className="table-wrap">
-        <table>
+      <div className="table-wrap scroll">
+        <table className={dense ? "dense" : undefined}>
           <thead>
             <tr>
               {th("name", "Campaign")}
               {showClient && <th>Project</th>}
-              {th("health", "Health")}
+              <th className="sortable" title="Judged against this account's own cost per conversion, and only when the difference is more than chance" onClick={() => setSort((s) => ({ key: "health", dir: s.key === "health" ? (s.dir === 1 ? -1 : 1) : -1 }))}>
+                Health <i className="info-tip">i</i>{sort.key === "health" ? (sort.dir === 1 ? " ↑" : " ↓") : ""}
+              </th>
               {th("spend", "Spend", true)}
               {th("conversions", "Conv.", true)}
               {th("cpa", "Cost / conv.", true)}

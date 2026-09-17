@@ -51,10 +51,12 @@ export async function portfolioOutcomes() {
 export async function portfolioFeedback() {
   // "Still there" asks whether the problem a dismissed or ignored recommendation
   // was about is still measured today — ignoring it did not make it go away.
-  return q<{ product: string; area: string; done: number; dismissed: number; ignored: number; not_done_problem_still_there: number; projects: number }>(`
+  return q<{ product: string; area: string; done: number; dismissed: number; dismissed_as_wrong: number; dismissed_as_not_relevant: number; ignored: number; not_done_problem_still_there: number; projects: number }>(`
     SELECT r.product, r.area,
            count(*) FILTER (WHERE r.status = 'done')::int AS done,
            count(*) FILTER (WHERE r.status = 'dismissed')::int AS dismissed,
+           count(*) FILTER (WHERE r.status = 'dismissed' AND r.dismiss_reason = 'wrong')::int AS dismissed_as_wrong,
+           count(*) FILTER (WHERE r.status = 'dismissed' AND r.dismiss_reason = 'not_relevant')::int AS dismissed_as_not_relevant,
            count(*) FILTER (WHERE r.status = 'superseded')::int AS ignored,
            count(*) FILTER (WHERE r.status IN ('dismissed', 'superseded') AND EXISTS (
              SELECT 1 FROM findings f WHERE f.client_id = r.client_id AND f.kind = ANY(r.finding_kinds)

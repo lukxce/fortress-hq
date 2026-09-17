@@ -60,6 +60,12 @@ export default async function Portfolio({ searchParams }: { searchParams: Promis
     for (const r of views[i]?.campaigns ?? []) rows.push({ ...r, client: c.name, clientId: c.id, currency: c.currency });
   });
   const currencies = new Set(clients.map((c) => c.currency));
+  const one = currencies.size === 1 ? [...currencies][0] : null;
+  const sum = (f: (v: any) => number) => views.reduce((n, v) => n + (v ? f(v) : 0), 0);
+  const spend = sum((v) => v.totals.spend), conv = sum((v) => v.totals.conversions);
+  const doFirst = urgent.reduce((n: number, u: any) => n + u.first, 0);
+  const openTotal = urgent.reduce((n: number, u: any) => n + u.open, 0);
+  const needing = urgent.filter((u: any) => u.first > 0).length;
 
   return (
     <div className="stack rise">
@@ -67,12 +73,19 @@ export default async function Portfolio({ searchParams }: { searchParams: Promis
         <div>
           <div className="label eyebrow">Portfolio · last {days} days</div>
           <h1>All projects</h1>
-          <p className="meta">Signed in as {setup.email ?? "your Google account"}</p>
+          <p className="meta">{clients.length} project{clients.length === 1 ? "" : "s"}</p>
         </div>
         <div className="tabs">
           {RANGES.map((r) => <Link key={r} href={`/overview?days=${r}` as never} className={`tab${r === days ? " active" : ""}`}>{r} days</Link>)}
         </div>
       </header>
+
+      <p className="sentence" style={{ fontSize: 21 }}>
+        {one ? <>Across {clients.length === 1 ? "the project" : `all ${clients.length} projects`}: <span className="num">{money(spend, one)}</span> spent, <span className="num">{count(conv, 0)}</span> conversions{conv > 0 && <> at <span className="num">{money(spend / conv, one)}</span> each</>}. </> : null}
+        {doFirst > 0
+          ? <span className="mark">{doFirst} thing{doFirst === 1 ? "" : "s"} to do first, in {needing} project{needing === 1 ? "" : "s"}.</span>
+          : openTotal > 0 ? <>{openTotal} open recommendation{openTotal === 1 ? "" : "s"}, nothing urgent.</> : <>Nothing open.</>}
+      </p>
 
       <div className="card">
         <div className="table-wrap">

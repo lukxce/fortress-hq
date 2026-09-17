@@ -26,7 +26,7 @@ export default async function TagManagerPage({ params }: { params: Promise<{ id:
   if (!client.gtm_container_id) {
     return (
       <div className="stack rise">
-        <ProductHead product="tag_manager" title="Tags and health" clientId={client.id} />
+        <ProductHead product="tag_manager" title="Tags on the site" clientId={client.id} />
         {overview}
         <NotConnected product="tag_manager" clientId={client.id} adds="Tag Manager is where tracking actually lives. Connected, it shows duplicate Google tags, tags nothing can fire, and when a container change lines up with a drop in conversions." />
       </div>
@@ -41,7 +41,7 @@ export default async function TagManagerPage({ params }: { params: Promise<{ id:
   if (!tags.length) {
     return (
       <div className="stack rise">
-        <ProductHead product="tag_manager" title="Tags and health" clientId={client.id} />
+        <ProductHead product="tag_manager" title="Tags on the site" clientId={client.id} />
         {overview}
         <NoDataYet clientId={client.id} what="Sync reads the live container: every tag, what it points at and what fires it." />
       </div>
@@ -60,7 +60,7 @@ export default async function TagManagerPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="stack rise">
-      <ProductHead product="tag_manager" title="Tags and health" clientId={client.id}
+      <ProductHead product="tag_manager" title="Tags on the site" clientId={client.id}
         meta={syncedMeta(tags[0]?.synced_at, `${client.gtm_container_id} · live version`)}>
         <Link href={`/clients/${client.id}/tracking` as never} className="btn">Conversion tracking</Link>
       </ProductHead>
@@ -87,7 +87,7 @@ export default async function TagManagerPage({ params }: { params: Promise<{ id:
       </section>
 
       <div className="card">
-        <div className="card-head"><h2>Versions seen</h2><span className="meta">The date is when Fortress first saw a version live — within a day of publishing.</span></div>
+        <div className="card-head"><h2>Versions seen</h2><i className="info-tip" title="The date is when Fortress first saw a version live — within a day of publishing.">i</i></div>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Version</th><th>Name</th><th className="r">Tags</th><th>First seen live</th></tr></thead>
