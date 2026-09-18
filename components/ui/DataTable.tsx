@@ -6,7 +6,7 @@ import { money, count, pct } from "@/lib/format";
 export type Column = {
   key: string;
   label: string;
-  format?: "text" | "count" | "decimal" | "pct" | "money" | "position" | "url";
+  format?: "text" | "count" | "decimal" | "pct" | "money" | "position" | "url" | "verdict";
   /** Shown under the value, from another field of the row. */
   sub?: string;
   hint?: string;
@@ -19,14 +19,17 @@ type Row = Record<string, string | number | null>;
  * filter over a column's values. Formats are named rather than passed as
  * functions, so server pages can hand it plain rows.
  */
-export function DataTable({ columns, rows, search, filter, currency, empty = "Nothing to show.", initialSort, limit = 50 }: {
+export function DataTable({ columns, rows, search, filter, currency, empty = "Nothing to show.", initialSort, limit = 50, initialPick = "all" }: {
   columns: Column[]; rows: Row[]; search?: string; currency?: string | null; empty?: string;
   filter?: { key: string; label: string };
   initialSort?: { key: string; dir: 1 | -1 };
   limit?: number;
+  /** Start with the filter set to this value (e.g. from a link). */
+  initialPick?: string;
 }) {
   const [query, setQuery] = useState("");
-  const [pick, setPick] = useState("all");
+  const [pick, setPick] = useState(initialPick);
+  useEffect(() => { setPick(initialPick); }, [initialPick]);
   const [shownCount, setShownCount] = useState(limit);
   const [dense, setDense] = useDensity();
   const [sort, setSort] = useState(initialSort ?? { key: columns.find((c) => c.format && c.format !== "text" && c.format !== "url")?.key ?? columns[0].key, dir: -1 as 1 | -1 });
@@ -35,12 +38,13 @@ export function DataTable({ columns, rows, search, filter, currency, empty = "No
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const textKeys = columns.filter((c) => !c.format || c.format === "text" || c.format === "url").map((c) => c.key);
+    const textKeys = columns.filter((c) => !c.format || c.format === "text" || c.format === "url" || c.format === "verdict").map((c) => c.key);
     return rows
       .filter((r) => !filter || pick === "all" || String(r[filter.key]) === pick)
       .filter((r) => !q || textKeys.some((k) => String(r[k] ?? "").toLowerCase().includes(q)))
       .sort((a, b) => {
-        const x = a[sort.key], y = b[sort.key];
+        const rankKey = `${sort.key}_rank`;
+        const x = rankKey in a ? a[rankKey] : a[sort.key], y = rankKey in b ? b[rankKey] : b[sort.key];
         if (x == null && y == null) return 0;
         if (x == null) return 1;
         if (y == null) return -1;
@@ -62,7 +66,7 @@ export function DataTable({ columns, rows, search, filter, currency, empty = "No
       default: return String(v);
     }
   };
-  const numeric = (c: Column) => c.format && c.format !== "text" && c.format !== "url";
+  const numeric = (c: Column) => c.format && c.format !== "text" && c.format !== "url" && c.format !== "verdict";
 
   return (
     <div className="card">
@@ -103,7 +107,9 @@ export function DataTable({ columns, rows, search, filter, currency, empty = "No
               <tr key={i}>
                 {columns.map((c, j) => (
                   <td key={c.key} className={numeric(c) ? "num r" : undefined} title={c.format === "url" ? String(r[c.key] ?? "") : undefined}>
-                    <div className={j === 0 ? "cell-name" : undefined}>{cell(c, r[c.key])}</div>
+                    {c.format === "verdict"
+                      ? <span className={`pill ${r[`${c.key}_tone`] ?? ""}`}>{String(r[c.key] ?? "—")}</span>
+                      : <div className={j === 0 ? "cell-name" : undefined}>{cell(c, r[c.key])}</div>}
                     {c.sub && r[c.sub] != null && <div className="cell-sub">{String(r[c.sub])}</div>}
                   </td>
                 ))}

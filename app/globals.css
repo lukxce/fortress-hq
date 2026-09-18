@@ -746,3 +746,5 @@ table.dense td { padding-top: 7px; padding-bottom: 7px; }
   .stat { padding: 14px; }
   .stat-foot span:last-child { display: none; }
 }
+td .pill + .cell-sub { max-width: 340px; white-space: normal; margin-top: 4px; line-height: 1.4; }
+td:has(> .pill + .cell-sub) { min-width: 260px; }
