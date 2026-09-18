@@ -44,6 +44,7 @@ export async function classifyIndustries(): Promise<number> {
     const res = await anthropic.messages.create({
       model: "claude-sonnet-5",
       max_tokens: 200,
+      thinking: { type: "disabled" },
       system: `Classify the business into exactly one industry key. Keys:\n${Object.entries(INDUSTRIES).map(([k, v]) => `${k}: ${v}`).join("\n")}\nIf the evidence is too thin to tell, answer "other".`,
       output_config: { format: { type: "json_schema", schema: { type: "object", properties: { industry: { type: "string", enum: Object.keys(INDUSTRIES) } }, required: ["industry"], additionalProperties: false } } },
       messages: [{ role: "user", content: JSON.stringify({ name: p.name, website: p.website ?? p.domain, site: p.summary, convertingSearches: p.terms, keywords: p.keywords, organicSearches: p.queries }) }],

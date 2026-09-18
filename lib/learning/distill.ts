@@ -70,12 +70,12 @@ export async function distillLessons(): Promise<{ proposed: number; applied: boo
   const anthropic = new Anthropic({ apiKey: key });
   const res = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 6000,
+    max_tokens: 16000,
     system: [
       { type: "text" as const, text: KNOWLEDGE, cache_control: { type: "ephemeral" as const } },
       { type: "text" as const, text: SYSTEM },
     ],
-    output_config: { format: { type: "json_schema", schema: SCHEMA } },
+    output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
     messages: [{ role: "user", content: JSON.stringify({
       patterns,
       experimentsAcrossProjects: outcomes,

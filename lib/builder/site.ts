@@ -109,6 +109,7 @@ export async function distil(clientId: number, url: string): Promise<SiteSummary
   const res = await anthropic.messages.create({
     model: "claude-sonnet-5",
     max_tokens: 2000,
+    thinking: { type: "disabled" },
     system: "You read a small business's website and say, in plain words, what it sells, to whom and where. Only state what the pages say — never invent a service, a place, a price or a phone number. offers: each distinct service or product line, with the URL of the page that best describes it (one of the URLs given). places: towns or areas served, as written on the site. phone: as written, or an empty string. language: the site's language (for example \"Serbian (Latin)\"). sellingPoints: short factual claims the site makes (years in business, guarantees, response times) — at most six.",
     output_config: { format: { type: "json_schema", schema } },
     messages: [{ role: "user", content: JSON.stringify(pages) }],

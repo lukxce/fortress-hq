@@ -36,7 +36,10 @@ export async function answer(clientId: number, question: string, history: { role
   const anthropic = new Anthropic({ apiKey: key });
   const res = await anthropic.messages.create({
     model: CHAT_MODEL,
-    max_tokens: 1200,
+    max_tokens: 2000,
+    // Sonnet 5 thinks by default and thinking counts against max_tokens; a chat
+    // answer from a ready-made snapshot does not need it, and speed matters here.
+    thinking: { type: "disabled" },
     system: [
       { type: "text" as const, text: [OPERATING_CONTEXT, SMALL_ACCOUNTS, REPORTING].join("\n\n"), cache_control: { type: "ephemeral" as const } },
       ...(lessons.length ? [{ type: "text" as const, text: lessonsAsText(lessons) }] : []),

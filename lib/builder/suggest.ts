@@ -72,6 +72,7 @@ export async function suggestGroups(clientId: number, summary: unknown, places: 
   const res = await anthropic.messages.create({
     model: "claude-sonnet-5",
     max_tokens: 4000,
+    thinking: { type: "disabled" },
     system: `You group search keywords for a new Google Search campaign for a small local business.
 
 Rules:
@@ -118,6 +119,7 @@ export async function suggestAdText(summary: unknown, group: { name: string; key
   const res = await anthropic.messages.create({
     model: "claude-sonnet-5",
     max_tokens: 1500,
+    thinking: { type: "disabled" },
     system: `You write responsive search ad text for one ad group of a small local business, in the language of its website.
 
 - Up to 15 headlines, each at most 30 characters including spaces. Up to 4 descriptions, each at most 90 characters.

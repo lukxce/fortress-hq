@@ -10,10 +10,10 @@ export async function POST(req: NextRequest) {
   const client = await scopedClient(clientParam(req));
   if (client instanceof NextResponse) return client;
   if (!brainConfigured()) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY is not set, so analysis is unavailable." }, { status: 400 });
+    return NextResponse.json({ error: "Analysis is not set up on this installation yet — the admin needs to add the AI key." }, { status: 400 });
   }
   try {
-    return NextResponse.json(await recommend(client.id));
+    return NextResponse.json(await recommend(client.id, { force: new URL(req.url).searchParams.get("force") === "1" }));
   } catch (err) {
     return failure(err);
   }

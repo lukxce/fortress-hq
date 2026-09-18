@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { q } from "@/lib/db";
 import { requireAdmin } from "@/lib/user";
 import { MODEL, KNOWLEDGE, brainConfigured } from "@/lib/brain/recommend";
@@ -27,7 +28,7 @@ export default async function AdminBrain() {
              WHERE l.status IN ('active', 'off') ORDER BY l.active DESC, l.id DESC`),
     portfolioOutcomes(),
     portfolioFeedback(),
-    q<any>(`SELECT r.created_at, r.model, r.cost_usd, r.findings_count, r.insights_count, r.skipped_count, r.actions_dropped, r.error,
+    q<any>(`SELECT r.id, r.created_at, r.model, (r.request IS NOT NULL) AS has_transcript, r.cost_usd, r.findings_count, r.insights_count, r.skipped_count, r.actions_dropped, r.error,
                    c.name AS project, u.email AS owner
               FROM analysis_runs r JOIN clients c ON c.id = r.client_id LEFT JOIN users u ON u.id = c.owner_id
              ORDER BY r.created_at DESC LIMIT 25`),
@@ -214,7 +215,7 @@ export default async function AdminBrain() {
           <tbody>
             {runs.map((r, i) => (
               <tr key={i}>
-                <td><div className="cell-name">{r.project}</div><div className="cell-sub">{r.owner ?? "—"}</div></td>
+                <td><Link href={`/admin/runs/${r.id}` as never} className="cell-name">{r.project}</Link><div className="cell-sub">{r.owner ?? "—"}{r.has_transcript ? " · full transcript" : ""}</div></td>
                 <td>{ago(r.created_at)}{r.error && <div className="cell-sub bad-text">{r.error}</div>}</td>
                 <td className="num r">{r.findings_count}</td><td className="num r">{r.insights_count}</td>
                 <td className="num r">{r.actions_dropped ?? 0}</td><td className="num r">${Number(r.cost_usd ?? 0).toFixed(2)}</td>

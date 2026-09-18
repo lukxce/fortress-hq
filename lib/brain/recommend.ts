@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { q, tx } from "@/lib/db";
 import { monthlyImpact, storeFindings, type Finding } from "@/lib/engine/findings";
@@ -18,12 +19,15 @@ import { SEARCH_CONSOLE } from "./knowledge/searchconsole";
 import { TAG_MANAGER } from "./knowledge/tagmanager";
 import { WEBSITE } from "./knowledge/website";
 import { KEYWORDS } from "./knowledge/keywords";
+import { salvageRecommendations } from "./salvage";
 
 // Claude Opus 5, pinned: analysis quality must not depend on a default changed
 // elsewhere for unrelated reasons.
 export const MODEL = "claude-opus-5";
 const USD_PER_MTOK_IN = 5;
 const USD_PER_MTOK_OUT = 25;
+// Leave the 300-second route time to write and store what came back.
+const STOP_AFTER_MS = 255_000;
 
 export function brainConfigured(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
@@ -101,7 +105,7 @@ Most of these accounts are below the conversion floors. Findings marked "not yet
 OUTPUT
 
 summary: one or two sentences — the story this account is telling right now, the single most important thing, with its figure from the findings.
-recommendations: between 3 and 10, ordered by what to do first. Fewer and sharper beats a long list. If the account is genuinely healthy, say so in the summary and return only what is worth doing.`;
+recommendations: as many as the findings genuinely justify, ordered by what to do first — never padded to look thorough. Keep each why to two to four sentences and each step to one line. If the account is genuinely healthy, say so in the summary and return only what is worth doing.`;
 
 const OUTPUT_SCHEMA = {
   type: "object",
@@ -160,9 +164,14 @@ const Plan = z.object({
   ad_groups: z.array(z.object({ name: z.string(), keywords: z.array(z.string()).default([]) })).default([]),
 });
 
-export type RunResult = { inserted: number; skipped: number; actionsDropped: number; cost: number; summary: string };
+export type RunResult = { inserted: number; skipped: number; actionsDropped: number; cost: number; summary: string; unchanged?: boolean; message?: string };
 
-export async function recommend(clientId: number): Promise<RunResult> {
+// A run whose problems, settings, lessons and knowledge are all unchanged would
+// be paid for again only to say the same thing. After this long it is re-run
+// anyway, so the figures in its wording stay current.
+const SAME_ANSWER_DAYS = 7;
+
+export async function recommend(clientId: number, opts: { force?: boolean } = {}): Promise<RunResult> {
   if (!brainConfigured()) throw new Error("ANTHROPIC_API_KEY is not set.");
 
   const snap = await accountSnapshot(clientId);
@@ -195,6 +204,30 @@ export async function recommend(clientId: number): Promise<RunResult> {
   ]);
 
   const { _findings, ...forModel } = snap;
+
+  // What the answer depends on, without the day-to-day drift of figures that
+  // the same problems carry: which problems, how severe, on what; the project's
+  // own settings; the lessons and knowledge the model reads.
+  const [settings] = await q<any>(`SELECT goal_type, target_cpa, target_roas, monthly_budget, brand_terms, website, industry FROM clients WHERE id = $1`, [clientId]);
+  const fingerprint = createHash("sha256").update(JSON.stringify({
+    findings: findings.map((f) => [f.kind, f.severity, f.entityType ?? "", f.entityId ?? ""]).sort(),
+    settings, lessons: lessons.map((l) => l.text).sort(),
+    knowledge: createHash("sha256").update(KNOWLEDGE + SYSTEM).digest("hex"),
+  })).digest("hex");
+  if (!opts.force) {
+    const [same] = await q<any>(`
+      SELECT r.id, r.created_at FROM analysis_runs r
+       WHERE r.client_id = $1 AND r.fingerprint = $2 AND r.error IS NULL
+         AND r.created_at > now() - make_interval(days => $3)
+         AND EXISTS (SELECT 1 FROM recommendations x WHERE x.run_id = r.id)
+       ORDER BY r.created_at DESC LIMIT 1`, [clientId, fingerprint, SAME_ANSWER_DAYS]);
+    if (same) {
+      return {
+        inserted: 0, skipped: 0, actionsDropped: 0, cost: 0, summary: "", unchanged: true,
+        message: `Nothing has changed since the analysis on ${new Date(same.created_at).toLocaleDateString("en-GB")}: the same problems, settings and lessons. Running it again would cost money to say the same thing.`,
+      };
+    }
+  }
   const input = {
     today: new Date().toISOString().slice(0, 10),
     ...forModel,
@@ -208,31 +241,66 @@ export async function recommend(clientId: number): Promise<RunResult> {
     portfolioLearning: { experiments: learning.outcomesAcrossAllProjects, feedback: learning.operatorFeedbackLast180Days, portfolio: learning.portfolio },
   };
 
+  // Streamed, because Opus 5 thinks by default and thinking counts against
+  // max_tokens: a big account needs room for both. The analyse route has 300
+  // seconds, so the stream is stopped at STOP_AFTER_MS and whatever complete
+  // recommendations arrived by then are kept rather than thrown away.
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!.trim() });
-  const res = await anthropic.messages.create({
+  const controller = new AbortController();
+  const system = [
+    { type: "text" as const, text: KNOWLEDGE, cache_control: { type: "ephemeral" as const } },
+    ...(lessons.length ? [{ type: "text" as const, text: lessonsAsText(lessons) }] : []),
+    { type: "text" as const, text: SYSTEM },
+  ];
+  const userMessage = `Here is everything measured about this account. Write the list.\n\n${JSON.stringify(input)}`;
+  const started = Date.now();
+  const stream = anthropic.messages.stream({
     model: MODEL,
-    max_tokens: 16000,
-    system: [
-      { type: "text" as const, text: KNOWLEDGE, cache_control: { type: "ephemeral" as const } },
-      ...(lessons.length ? [{ type: "text" as const, text: lessonsAsText(lessons) }] : []),
-      { type: "text" as const, text: SYSTEM },
-    ],
-    output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
-    messages: [{ role: "user", content: `Here is everything measured about this account. Write the list.\n\n${JSON.stringify(input)}` }],
-  } as any);
+    max_tokens: 48000,
+    system,
+    output_config: { effort: "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
+    messages: [{ role: "user", content: userMessage }],
+  } as any, { signal: controller.signal });
+  const transcript = () => ({
+    request: { model: MODEL, effort: "medium", system: system.map((b) => b.text), user: userMessage },
+    response: text, stopReason: stoppedEarly ? "stopped_for_time" : final?.stop_reason ?? null, ms: Date.now() - started, fingerprint,
+  });
 
-  const usage = (res as any).usage ?? {};
+  let streamed = "";
+  stream.on("text", (delta: string) => { streamed += delta; });
+  const timer = setTimeout(() => controller.abort(), STOP_AFTER_MS);
+  let final: any = null;
+  let stoppedEarly = false;
+  try {
+    final = await stream.finalMessage();
+  } catch (err) {
+    if (!controller.signal.aborted) throw err;
+    stoppedEarly = true;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const usage = (final ?? (stream as any).currentMessage)?.usage ?? {};
   const cost =
     ((usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) * 1.25 + (usage.cache_read_input_tokens ?? 0) * 0.1) / 1e6 * USD_PER_MTOK_IN +
     ((usage.output_tokens ?? 0) / 1e6) * USD_PER_MTOK_OUT;
 
-  const text = (res.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
-  let top: { summary?: unknown; recommendations?: unknown[] };
+  const text = final
+    ? (final.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("")
+    : streamed;
+  const cutOff = stoppedEarly || final?.stop_reason === "max_tokens";
+  let top: { summary?: unknown; recommendations?: unknown[] } | null = null;
   try {
     top = JSON.parse(text);
   } catch {
-    await logRun(clientId, usage, cost, findings.length, 0, 0, 0, null, "The model returned something that was not JSON.");
-    throw new Error("The model returned something that was not valid JSON.");
+    top = salvageRecommendations(text);
+  }
+  if (!top || !Array.isArray(top.recommendations) || (!top.recommendations.length && cutOff)) {
+    const why = cutOff
+      ? "The analysis ran out of room before finishing a single recommendation."
+      : "The model returned something that was not JSON.";
+    await logRun(clientId, usage, cost, findings.length, 0, 0, 0, null, why, transcript());
+    throw new Error(`${why} Nothing was changed; try again.`);
   }
 
   const summary = typeof top.summary === "string" ? top.summary : "";
@@ -286,7 +354,8 @@ export async function recommend(clientId: number): Promise<RunResult> {
     });
   }
 
-  const runId = await logRun(clientId, usage, cost, findings.length, rows.length, skipped, actionsDropped, summary, null);
+  const runId = await logRun(clientId, usage, cost, findings.length, rows.length, skipped, actionsDropped, summary,
+    cutOff ? `Stopped before finishing; kept the ${rows.length} complete recommendation${rows.length === 1 ? "" : "s"}.` : null, transcript());
 
   await tx(async (run) => {
     // Un-started experiments go with the recommendation that proposed them;
@@ -327,15 +396,20 @@ export async function recommend(clientId: number): Promise<RunResult> {
 
 async function logRun(
   clientId: number, usage: any, cost: number, findings: number, inserted: number,
-  skipped: number, dropped: number, summary: string | null, error: string | null
+  skipped: number, dropped: number, summary: string | null, error: string | null,
+  t?: { request: unknown; response: string; stopReason: string | null; ms: number; fingerprint: string }
 ): Promise<number> {
   const [r] = await q<{ id: number }>(
     `INSERT INTO analysis_runs (client_id, model, input_tokens, output_tokens, cost_usd,
-        findings_count, insights_count, skipped_count, actions_dropped, summary, error)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+        findings_count, insights_count, skipped_count, actions_dropped, summary, error,
+        request, response_text, stop_reason, duration_ms, fingerprint)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
     [clientId, MODEL,
      (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
-     usage.output_tokens ?? 0, cost.toFixed(4), findings, inserted, skipped, dropped, summary, error]
+     usage.output_tokens ?? 0, cost.toFixed(4), findings, inserted, skipped, dropped, summary, error,
+     t ? JSON.stringify(t.request) : null, t?.response ?? null, t?.stopReason ?? null, t?.ms ?? null,
+     // A run that kept only part of its answer should not stop the next one.
+     t && !(error && inserted === 0) && !t.stopReason?.startsWith("stopped") && t.stopReason !== "max_tokens" ? t.fingerprint : null]
   );
   return r.id;
 }
@@ -343,7 +417,7 @@ async function logRun(
 export async function lastRun(clientId: number) {
   const [r] = await q<any>(`SELECT id, created_at, cost_usd, model, insights_count, skipped_count,
                                    actions_dropped, summary
-                              FROM analysis_runs WHERE client_id = $1 AND error IS NULL
+                              FROM analysis_runs WHERE client_id = $1 AND (error IS NULL OR insights_count > 0)
                              ORDER BY created_at DESC LIMIT 1`, [clientId]);
   return r ?? null;
 }
