@@ -181,8 +181,11 @@ export async function syncKeywords(
            ad_group_criterion.quality_info.post_click_quality_score,
            ${METRICS}
       FROM keyword_view
-     WHERE ${range()}
+     WHERE ${range()} AND ad_group_criterion.negative = FALSE
   `);
+  // keyword_view also returns ad-group negatives; they were stored as keywords
+  // until this filter. Anything this sync did not see is gone from the account.
+  const started = new Date();
 
   await tx(async (run) => {
     for (const r of rows) {
@@ -217,6 +220,7 @@ export async function syncKeywords(
       );
     }
   });
+  await q(`DELETE FROM keywords WHERE client_id = $1 AND synced_at < $2`, [client.id, started]);
   return rows.length;
 }
 

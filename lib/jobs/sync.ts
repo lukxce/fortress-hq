@@ -18,6 +18,7 @@ import { syncChangeEvents } from "./changes";
 import { syncGbp } from "./gbp";
 import { BUSINESS_PROFILE_ENABLED } from "@/lib/features";
 import { syncKeywordPlanner } from "./keywords";
+import { syncAdMetrics, syncAdAssets, syncKeywordBids, syncKeywordShare, syncSearchTermKeywords, syncRecentSearchTerms } from "./depth";
 import { runTagCheck } from "@/lib/tracking/tagcheck";
 
 // Window sizes are a direct consequence of read economics. A GAQL query costs
@@ -72,14 +73,20 @@ export async function syncClient(clientId: number): Promise<SyncReport> {
     await step("campaigns", () => syncCampaigns(auth, client));
     await step("daily metrics", () => syncMetrics(auth, client));
     await step("search terms", () => syncSearchTerms(auth, client));
+    await step("search terms, last 28 days", () => syncRecentSearchTerms(auth, client));
+    await step("which keyword brought each search", () => syncSearchTermKeywords(auth, client));
     await step("conversion actions", () => syncConversionActions(auth, client));
     // The depth: where the money actually went, rather than that it went.
     await step("keywords", () => syncKeywords(auth, client));
+    await step("keyword bids", () => syncKeywordBids(auth, client));
+    await step("keyword impression share", () => syncKeywordShare(auth, client));
     await step("landing pages", () => syncLandingPages(auth, client));
     await step("placements", () => syncPlacements(auth, client));
     await step("conversion mix", () => syncConversionBreakdown(auth, client));
     await step("ad groups", () => syncAdGroups(auth, client));
     await step("ads", () => syncAds(auth, client));
+    await step("ad performance", () => syncAdMetrics(auth, client));
+    await step("headline and description ratings", () => syncAdAssets(auth, client));
     await step("ad group metrics", () => syncAdGroupMetrics(auth, client));
     await step("hour and day", () => syncSchedule(auth, client));
     await step("impression share", () => syncImpressionShare(auth, client));

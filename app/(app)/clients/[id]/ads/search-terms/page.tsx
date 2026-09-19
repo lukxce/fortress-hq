@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { pageClient } from "@/lib/page";
 import { searchTermVerdicts, keywordVerdicts } from "@/lib/engine/verdicts";
+import { negativeReport } from "@/lib/engine/negatives";
+import { EvidenceTable } from "@/components/ui/bits";
 import { DataTable } from "@/components/ui/DataTable";
 import { ProductHead } from "@/components/product/Product";
 
@@ -31,6 +33,7 @@ export default async function SearchTermsAndKeywords({ params, searchParams }: {
   const { view, verdict } = await searchParams;
   const keywordsView = view === "keywords";
   const cur = client.currency;
+  if (view === "negatives") return <Negatives clientId={client.id} currency={cur} />;
   const data = keywordsView ? await keywordVerdicts(client.id, cur) : await searchTermVerdicts(client.id, cur);
   const rows = data.rows as any[];
   const base = `/clients/${client.id}/ads/search-terms${keywordsView ? "?view=keywords&" : "?"}`;
@@ -47,6 +50,7 @@ export default async function SearchTermsAndKeywords({ params, searchParams }: {
         <div className="tabs">
           <Link href={`/clients/${client.id}/ads/search-terms` as never} className={`tab${!keywordsView ? " active" : ""}`}>Search terms</Link>
           <Link href={`/clients/${client.id}/ads/search-terms?view=keywords` as never} className={`tab${keywordsView ? " active" : ""}`}>Keywords</Link>
+          <Link href={`/clients/${client.id}/ads/search-terms?view=negatives` as never} className="tab">Negatives</Link>
           <Link href={`/clients/${client.id}/ads/keywords` as never} className="tab">Ideas</Link>
         </div>
       </ProductHead>
@@ -113,6 +117,51 @@ export default async function SearchTermsAndKeywords({ params, searchParams }: {
           initialSort={{ key: "verdict", dir: 1 }}
         />
       )}
+    </div>
+  );
+}
+
+async function Negatives({ clientId, currency }: { clientId: number; currency: string | null }) {
+  const r = await negativeReport(clientId);
+  const money = (n: number) => `${Math.round(n).toLocaleString()}${currency ? ` ${currency}` : ""}`;
+  const tabs = (
+    <div className="tabs">
+      <Link href={`/clients/${clientId}/ads/search-terms` as never} className="tab">Search terms</Link>
+      <Link href={`/clients/${clientId}/ads/search-terms?view=keywords` as never} className="tab">Keywords</Link>
+      <Link href={`/clients/${clientId}/ads/search-terms?view=negatives` as never} className="tab active">Negatives</Link>
+      <Link href={`/clients/${clientId}/ads/keywords` as never} className="tab">Ideas</Link>
+    </div>
+  );
+  const section = (title: string, say: string, empty: string, body: React.ReactNode | null, tone: string) => (
+    <div className="card">
+      <div className="card-head"><h2><span className={`dot ${tone}`} style={{ marginRight: 8 }} />{title}</h2></div>
+      <div className="card-pad" style={{ paddingBottom: body ? 0 : undefined }}><p className="meta" style={{ margin: 0 }}>{body ? say : empty}</p></div>
+      {body && <div style={{ padding: 16 }}>{body}</div>}
+    </div>
+  );
+  return (
+    <div className="stack rise">
+      <ProductHead product="ads" title="Search terms and keywords" clientId={clientId} meta="Negative keywords · 90 days">{tabs}</ProductHead>
+      <div className="stats" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+        <div className="card stat"><span className="label"><span className="dot bad" style={{ marginRight: 6 }} />Blocking what you want</span><div className="stat-value">{r.conflicts.length}</div><div className="stat-foot"><span>negatives that block a keyword or a converting search</span></div></div>
+        <div className="card stat"><span className="label"><span className="dot warn" style={{ marginRight: 6 }} />Missing elsewhere</span><div className="stat-value">{r.gaps.length}</div><div className="stat-foot"><span>excluded in one campaign, wasting in another{r.gaps.length ? ` · ${money(r.gaps.reduce((n, g) => n + g.spend, 0))}` : ""}</span></div></div>
+        <div className="card stat"><span className="label"><span className="dot warn" style={{ marginRight: 6 }} />Words to exclude</span><div className="stat-value">{r.words.length}</div><div className="stat-foot"><span>fail across many small searches{r.words.length ? ` · ${money(r.words.reduce((n, w) => n + w.spend, 0))}` : ""}</span></div></div>
+      </div>
+      {section("Negatives blocking what you want", "A negative always beats a keyword: these searches cannot show your ad at all. Remove the negative, or make it exact match.",
+        "No negative blocks one of your keywords or a search that converts.",
+        r.conflicts.length ? <EvidenceTable table={{ columns: ["Negative", "Level", "Campaign", "Blocks", "Which is a"], rows: r.conflicts.slice(0, 100).map((c) => [c.negative, c.level, c.campaign ?? "all", c.blocks, c.what]) }} /> : null, "bad")}
+      {section("Excluded in one campaign, still spending in another", "Someone already decided these are not wanted. A shared negative list applies that everywhere at once.",
+        "Every search excluded somewhere is excluded wherever it spends.",
+        r.gaps.length ? <EvidenceTable table={{ columns: ["Search", "Excluded in", "Still spending in", "Spend", "Clicks"], rows: r.gaps.map((g) => [g.term, g.negatedIn, g.spendingIn, Math.round(g.spend), g.clicks]) }} /> : null, "warn")}
+      {section("Words that waste across many small searches", "Each search is too small to judge alone; together they are clearly below this account's rate — beyond chance across every word tested. None is in an active keyword, so a phrase negative blocks nothing you bid on.",
+        "No word fails often enough across searches to be beyond chance yet. It needs more clicks, or the account converts evenly across its searches.",
+        r.words.length ? (
+          <>
+            <EvidenceTable table={{ columns: ["Word", "Searches", "Clicks", "Spend", "Conversions", "Expected"], rows: r.words.map((w) => [w.word, w.searches, w.clicks, Math.round(w.spend), w.conversions, Math.round(w.expected * 10) / 10]) }} />
+            <p className="meta" style={{ marginTop: 10 }}>To add as phrase negatives, one per line:</p>
+            <pre className="snippet">{r.words.map((w) => `"${w.word}"`).join("\n")}</pre>
+          </>
+        ) : null, "warn")}
     </div>
   );
 }

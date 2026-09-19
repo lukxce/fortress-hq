@@ -34,19 +34,30 @@ const V = {
 const x = (n: number) => `${n.toFixed(1)}×`;
 
 export async function searchTermVerdicts(clientId: number, currency: string | null) {
-  const [rows, keywords, negatives, brands, waste] = await Promise.all([
-    q<any>(`SELECT s.term, c.name AS campaign, SUM(s.impressions)::float AS impressions, SUM(s.clicks)::float AS clicks,
-                   SUM(s.cost_micros) AS cost, SUM(s.conversions)::float AS conv, MAX(v.avg_monthly)::float AS monthly
+  const [rows, keywords, negatives, brands, waste, via, decisions] = await Promise.all([
+    q<any>(`SELECT s.term, string_agg(DISTINCT c.name, ' · ') AS campaign, count(DISTINCT s.campaign_id)::int AS campaigns,
+                   SUM(s.impressions)::float AS impressions, SUM(s.clicks)::float AS clicks,
+                   SUM(s.cost_micros) AS cost, SUM(s.conversions)::float AS conv, MAX(v.avg_monthly)::float AS monthly,
+                   SUM(s.recent_cost_micros) AS recent_cost, SUM(s.recent_conversions)::float AS recent_conv
               FROM search_terms s
               LEFT JOIN campaigns c ON c.client_id = s.client_id AND c.campaign_id = s.campaign_id
               LEFT JOIN keyword_volumes v ON v.client_id = s.client_id AND v.keyword = lower(s.term)
-             WHERE s.client_id = $1 GROUP BY s.term, c.name`, [clientId]),
+             WHERE s.client_id = $1 GROUP BY s.term`, [clientId]),
     q<{ t: string }>(`SELECT DISTINCT lower(text) AS t FROM keywords WHERE client_id = $1 AND status <> 'REMOVED'`, [clientId]),
     q<{ t: string }>(`SELECT DISTINCT lower(text) AS t FROM negatives WHERE client_id = $1`, [clientId]),
     brandTerms(clientId),
     q<{ key: string; projects: number }>(`SELECT key, projects FROM portfolio_patterns WHERE kind = 'waste_theme' AND industry = 'all' AND significant`).catch(() => []),
+    q<any>(`SELECT DISTINCT ON (term) term, keyword_text, keyword_match FROM search_term_keywords
+             WHERE client_id = $1 ORDER BY term, clicks DESC`, [clientId]).catch(() => []),
+    q<any>(`SELECT text, decision FROM line_decisions WHERE client_id = $1 AND kind = 'search_term'`, [clientId]).catch(() => []),
   ]);
-  const terms = rows.map((r) => ({ ...r, spend: fromMicros(r.cost) }));
+  const viaKeyword = new Map(via.map((v: any) => [v.term, v]));
+  const decided = new Map(decisions.map((d: any) => [normalise(d.text), d.decision]));
+  const terms = rows.map((r) => {
+    const v = viaKeyword.get(r.term);
+    return { ...r, spend: fromMicros(r.cost), recentSpend: fromMicros(r.recent_cost),
+      via: v ? `via "${v.keyword_text}" (${String(v.keyword_match).toLowerCase()})` : null, viaText: v?.keyword_text ?? null, viaMatch: v?.keyword_match ?? null };
+  });
   const total = { spend: terms.reduce((n, t) => n + t.spend, 0), conversions: terms.reduce((n, t) => n + t.conv, 0) };
   const cpa = total.conversions > 0 ? total.spend / total.conversions : null;
   const converting = terms.filter((t) => t.conv > 0).map((t) => t.term);
@@ -58,8 +69,17 @@ export async function searchTermVerdicts(clientId: number, currency: string | nu
   const bar = zeroConversionMultiple(tested);
   const money = (n: number) => `${Math.round(n).toLocaleString()}${currency ? ` ${currency}` : ""}`;
 
+  const stems = (s: string) => new Set(normalise(s).split(" ").filter((w) => w.length >= 3).map((w) => w.slice(0, 5)));
+  const drifted = (t: any) => {
+    if (!t.viaText || t.viaMatch === "EXACT") return false;
+    const a = stems(t.term), b = stems(t.viaText);
+    return b.size > 0 && ![...a].some((w) => b.has(w));
+  };
+
   const verdictFor = (t: any): Verdict => {
     const n = normalise(t.term);
+    const decision = decided.get(n);
+    if (decision) return { verdict: decision === "keep" ? "Kept by you" : "Ignored by you", tone: "pill", note: "You decided this; it will not be suggested again", rank: 9 };
     if (containsBrand(t.term, brands)) return V.brand("Your own name — never a negative");
     if (isNegative.has(n)) return V.keep("Already a negative");
     if (t.conv > 0) {
@@ -76,13 +96,22 @@ export async function searchTermVerdicts(clientId: number, currency: string | nu
     const words = n.split(" ");
     const failsElsewhere = words.map((w) => wasteWords.get(w)).find(Boolean);
     if (multiple >= bar && !nearConverting) return V.negative(`Spent ${money(t.spend)} — ${x(multiple)} a conversion's cost — with nothing back; beyond chance across ${tested} searches`);
+    if (drifted(t) && multiple >= 0.5 && !nearConverting) {
+      return { verdict: "Off-target match", tone: "pill-warn", note: `Shares no word with the keyword "${t.viaText}" (${String(t.viaMatch).toLowerCase()} match) — Google stretched it too far; negative it or tighten the match`, rank: 2 };
+    }
     if (failsElsewhere && t.spend >= cpa * 0.5 && !nearConverting) return V.negative(`No conversions here, and its wording fails on ${failsElsewhere} other accounts`);
     if (multiple >= 1 && nearConverting) return V.keep(`No conversions, but close to a search that converts — a negative could block it`);
     if (multiple >= 1) return V.watch(`Spent ${x(multiple)} a conversion's cost with none; not yet enough to call it waste (${x(bar)} is)`);
     return V.none(`Spent ${x(multiple)} a conversion's cost — too little to judge`);
   };
 
-  const judged = terms.map((t) => ({ ...t, ...verdictFor(t) }));
+  const judged = terms.map((t) => {
+    const v = verdictFor(t);
+    const extra: string[] = [];
+    if (t.campaigns > 1) extra.push(`shows in ${t.campaigns} campaigns`);
+    if (t.conv === 0 && t.spend > 0 && t.recentSpend >= t.spend * 0.6 && t.spend >= (cpa ?? Infinity) * 0.5) extra.push("most of this spend is in the last 4 weeks");
+    return { ...t, ...v, note: extra.length ? `${v.note} · ${extra.join(" · ")}` : v.note };
+  });
   const shown = judged.filter((t) => t.clicks > 0 || t.conv > 0);
   return { cpa, bar, rows: shown, hidden: judged.length - shown.length };
 }
@@ -94,11 +123,15 @@ export async function keywordVerdicts(clientId: number, currency: string | null)
   const rows = await q<any>(`
     SELECT k.text, k.match_type, k.status, c.name AS campaign, k.quality_score, k.expected_ctr, k.ad_relevance, k.landing_page_experience,
            k.clicks::float, k.impressions::float, k.cost_micros AS cost, k.conversions::float AS conv, v.avg_monthly::float AS monthly,
-           c.search_lost_is_budget::float AS lost_budget, c.search_lost_is_rank::float AS lost_rank, c.status AS campaign_status
+           c.search_lost_is_budget::float AS lost_budget, c.search_lost_is_rank::float AS lost_rank, c.status AS campaign_status,
+           c.bidding_strategy, k.cpc_bid_micros, k.effective_cpc_bid_micros, k.first_page_cpc_micros, k.top_of_page_cpc_micros,
+           k.search_is::float, k.search_top_is::float, k.search_rank_lost_is::float
       FROM keywords k
       LEFT JOIN campaigns c ON c.client_id = k.client_id AND c.campaign_id = k.campaign_id
       LEFT JOIN keyword_volumes v ON v.client_id = k.client_id AND v.keyword = lower(k.text)
-     WHERE k.client_id = $1 AND k.status <> 'REMOVED'`, [clientId]);
+     WHERE k.client_id = $1 AND k.status <> 'REMOVED'
+       AND NOT EXISTS (SELECT 1 FROM negatives n WHERE n.client_id = k.client_id AND n.level = 'ad_group'
+                              AND n.ad_group_id = k.ad_group_id AND lower(n.text) = lower(k.text))`, [clientId]);
   const kws = rows.map((r) => ({ ...r, spend: fromMicros(r.cost) }));
   const live = kws.filter((k) => k.status === "ENABLED" && k.spend > 0 && !containsBrand(k.text, brands));
   const total = { spend: live.reduce((n, k) => n + k.spend, 0), conversions: live.reduce((n, k) => n + k.conv, 0) };
@@ -135,6 +168,12 @@ export async function keywordVerdicts(clientId: number, currency: string | null)
         return V.strong(`${money(own)} per conversion against ${money(restCpa)} for the rest — beyond chance`);
       }
     }
+    // Only bids someone sets by hand can sit below the first page; Smart Bidding sets its own.
+    const manual = ["MANUAL_CPC", "TARGET_SPEND", "ENHANCED_CPC"].includes(k.bidding_strategy ?? "");
+    const bid = Number(k.effective_cpc_bid_micros ?? k.cpc_bid_micros ?? 0), firstPage = Number(k.first_page_cpc_micros ?? 0);
+    if (manual && bid > 0 && firstPage > bid * 1.1 && k.impressions < 100) {
+      return { verdict: "Raise bid to show", tone: "pill-warn", note: `Bid ${money(bid / 1e6)}; Google estimates ${money(firstPage / 1e6)} to show on the first page — it barely appears`, rank: 2 };
+    }
     if (k.quality_score != null && k.quality_score <= 3 && weak.length && k.clicks > 0) return V.quality(`Quality ${k.quality_score}/10 — below average on ${weak.join(" and ")}`);
     if (k.monthly === 0 && k.impressions === 0) return V.noVolume("Keyword Planner shows no searches where you target; Google marks it low search volume");
     if (k.conv > 0) return V.working(`${k.conv.toFixed(0)} conversion${k.conv >= 1.5 ? "s" : ""}, in line with the account`);
@@ -142,7 +181,13 @@ export async function keywordVerdicts(clientId: number, currency: string | null)
   };
 
   // Lines that never got a click say nothing and only weigh the page down.
-  const judged = kws.map((k) => ({ ...k, ...verdictFor(k) }));
+  const judged = kws.map((k) => {
+    const v = verdictFor(k);
+    // Where a keyword shows matters most for the ones that already convert.
+    const share = k.conv > 0 && k.search_is != null
+      ? ` · shows on ${pct(k.search_is)} of its searches${k.search_top_is != null ? `, at the top on ${pct(k.search_top_is)}` : ""}` : "";
+    return { ...k, ...v, note: `${v.note}${share}` };
+  });
   const shown = judged.filter((k) => k.clicks > 0 || k.conv > 0 || k.verdict === "No search volume");
   return { cpa, bar, rows: shown, hidden: judged.length - shown.length };
 }

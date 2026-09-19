@@ -9,6 +9,7 @@ import { SpendBars, Delta, fmtMetric } from "@/components/ui/bits";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { CampaignTable } from "@/components/overview/CampaignTable";
 import { SetupCard } from "@/components/overview/SetupCard";
+import { FollowUpDone } from "@/components/overview/FollowUpDone";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export default async function ClientOverview({ params, searchParams }: {
   const days = RANGES.includes(Number(raw) as never) ? Number(raw) : 30;
   const cur = client.currency;
 
-  const [o, sync, run, open, beyond, daily] = await Promise.all([
+  const [o, sync, run, open, beyond, daily, due] = await Promise.all([
     overview(client.id, days),
     lastSync(client.id),
     lastRun(client.id),
@@ -45,6 +46,7 @@ export default async function ClientOverview({ params, searchParams }: {
               FROM metrics_daily WHERE client_id = $1 AND entity_type = 'campaign'
                AND date >= CURRENT_DATE - $2::int AND date < CURRENT_DATE
              GROUP BY date`, [client.id, days * 2]),
+    q<any>(`SELECT id, title, detail, href, due_on FROM follow_ups WHERE client_id = $1 AND status = 'open' AND due_on <= CURRENT_DATE + 2 ORDER BY due_on`, [client.id]),
   ]);
 
   const t = o.totals;
@@ -109,6 +111,15 @@ export default async function ClientOverview({ params, searchParams }: {
           syncSteps={Array.isArray(runRow?.detail) ? runRow.detail : null}
           synced={Boolean(sync)} analysed={Boolean(run)} canAnalyse={brainConfigured()}
         />
+        {client.ads_customer_id && !o.campaigns.length && (
+          <div className="card card-pad spread">
+            <div>
+              <h2 style={{ marginBottom: 4 }}>No campaigns in this account yet</h2>
+              <p className="meta" style={{ margin: 0 }}>Answer three questions and Fortress builds the whole campaign, forecasts it and checks it with Google before anything spends.</p>
+            </div>
+            <Link href={`/clients/${client.id}/launch` as never} className="btn btn-primary">Launch a campaign</Link>
+          </div>
+        )}
         <div className="stats ghost" aria-hidden>
           {["Spend", "Conversions", "Cost per conversion", "Clicks"].map((l) => (
             <div key={l} className="card stat"><span className="label">{l}</span><div className="stat-value">—</div><div className="stat-foot">vs previous {days} days</div></div>
@@ -148,7 +159,15 @@ export default async function ClientOverview({ params, searchParams }: {
           <h2>What to do</h2>
           {open.length > 0 && <Link href={`/clients/${client.id}/insights` as never} className="btn btn-sm">All {open.length} →</Link>}
         </div>
-        {top.length ? top.map((r: any) => (
+        {due.map((f: any) => (
+          <div key={`f${f.id}`} className="row-item">
+            <span className="dot warn" title="Follow-up" />
+            <span className="pill pill-outline">Follow-up</span>
+            <span className="title">{f.href ? <Link href={f.href as never} style={{ color: "var(--ink)" }}>{f.title}</Link> : f.title}<span className="cell-sub" style={{ display: "block", fontWeight: 400 }}>{f.detail}</span></span>
+            <span className="right">{new Date(f.due_on) <= new Date() ? "due now" : `due ${dateShort(f.due_on)}`} <FollowUpDone clientId={client.id} id={f.id} /></span>
+          </div>
+        ))}
+        {top.length || due.length ? top.map((r: any) => (
           <Link key={r.id} href={`/clients/${client.id}/insights#rec-${r.id}` as never} className="row-item">
             <span className={`dot ${r.severity}`} title={SEVERITY_LABEL[r.severity as keyof typeof SEVERITY_LABEL]} />
             <span className="pill pill-outline">{r.product && r.product !== "ads" ? PRODUCT_LABEL[r.product] : AREA_LABEL[r.area] ?? r.area}</span>

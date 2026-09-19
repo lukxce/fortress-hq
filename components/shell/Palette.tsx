@@ -11,7 +11,7 @@ type Item = { id: string; group: string; label: string; sub?: string; href: stri
 const PAGES: [string, string][] = [
   ["", "Overview"], ["/insights", "What to change"], ["/experiments", "Experiments"], ["/reports", "Reports"],
   ["/tag-manager", "Tags on the site"], ["/tracking", "Conversions"],
-  ["/ads", "Campaigns"], ["/ads/search-terms", "Search terms & keywords"], ["/ads/keywords", "Keyword research"], ["/builder", "New campaign"],
+  ["/launch", "Launch a campaign"], ["/ads", "Campaigns"], ["/ads/copy", "Ads & copy"], ["/ads/search-terms", "Search terms & keywords"], ["/ads/keywords", "Keyword research"], ["/builder", "New campaign"],
   ["/analytics", "Traffic"], ["/analytics/pages", "Landing pages"], ["/analytics/events", "Events"],
   ["/search-console", "Organic searches"], ["/search-console/pages", "Search Console pages"], ["/search-console/opportunities", "Opportunities"],
   ["/website", "Page speed"], ["/settings", "Project settings"],

@@ -84,6 +84,7 @@ export function Sidebar({ clients, admin, identity, email }: { clients: ClientIt
     { href: `${base}/insights`, label: "What to change", icon: I.change, count: current?.urgent },
     { href: `${base}/experiments`, label: "Experiments", icon: I.experiments },
     { href: `${base}/reports`, label: "Reports", icon: I.reports },
+    { href: `${base}/changes`, label: "Changes", icon: I.experiments },
   ] : [];
 
   const groups: Group[] = clientId ? [
@@ -92,10 +93,12 @@ export function Sidebar({ clients, admin, identity, email }: { clients: ClientIt
       { href: `${base}/tracking`, label: "Conversions" },
     ] },
     { key: "ads", title: "Google Ads", icon: I.campaigns, connected: Boolean(current?.ads), count: c.ads, links: [
+      { href: `${base}/launch`, label: "Launch a campaign" },
       { href: `${base}/ads`, label: "Campaigns", exact: true },
+      { href: `${base}/ads/copy`, label: "Ads & copy" },
       { href: `${base}/ads/search-terms`, label: "Search terms & keywords" },
       { href: `${base}/ads/keywords`, label: "Keyword research" },
-      { href: `${base}/builder`, label: "New campaign" },
+      { href: `${base}/builder`, label: "Campaign builder" },
     ] },
     { key: "analytics", title: "Analytics", icon: I.traffic, connected: Boolean(current?.analytics), count: c.analytics, links: [
       { href: `${base}/analytics`, label: "Traffic", exact: true },

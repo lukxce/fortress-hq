@@ -10,7 +10,7 @@ type Conversion = { name: string; category: string; last_received_at: string | n
 
 const STEPS = ["Your business", "What counts as a win", "Where to advertise", "What people search", "Your ads", "Your budget", "Check and launch"];
 const MATCH_LABEL = { EXACT: "This exact search", PHRASE: "Searches containing this", BROAD: "Related searches too" } as const;
-const SOURCE_LABEL = { search_console: "Search Console", converting: "Already converts", site: "On your site", suggested: "Suggested", manual: "Added by you" } as const;
+const SOURCE_LABEL = { search_console: "Search Console", converting: "Already converts", site: "On your site", planner: "Keyword Planner", suggested: "Suggested", manual: "Added by you" } as const;
 
 /** Drop empty trailing fields, keep gaps in the middle where the operator left them. */
 function trimTail(xs: string[]): string[] {
@@ -42,7 +42,7 @@ export function CampaignWizard({ clientId, draftId, initial, initialStep, status
   const [launched, setLaunched] = useState(status === "launched");
   const [log, setLog] = useState(launchLog);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const locked = status === "launched" || launched;
+  const locked = status === "launched" || status === "paused" || launched;
 
   // Save as you go. A draft is never lost to a closed tab.
   useEffect(() => {
@@ -373,7 +373,7 @@ export function CampaignWizard({ clientId, draftId, initial, initialStep, status
       {launched ? (
         <div className="notice notice-good"><div><strong>Launched.</strong> The campaign is live in Google Ads. Give it at least two weeks before judging it — longer if it gets few conversions.</div></div>
       ) : (
-        <div><button className="btn btn-primary btn-lg" disabled={problems.length > 0 || busy !== null} onClick={() => setConfirming(true)}>{log.some((s) => s.status === "failed") ? "Resume the launch" : "Launch in Google Ads"}</button></div>
+        <div><button className="btn btn-primary btn-lg" disabled={problems.length > 0 || busy !== null} onClick={() => setConfirming(true)}>{log.some((s) => s.status === "failed") ? "Resume building" : "Build it in Google Ads"}</button></div>
       )}
     </div>
   );
@@ -420,19 +420,19 @@ export function CampaignWizard({ clientId, draftId, initial, initialStep, status
               <div className="label eyebrow">Confirm a change in Google Ads</div>
               <h2>Launch &ldquo;{d.name}&rdquo;</h2>
               <p style={{ fontSize: 15 }}>
-                <span className="mark">Create a Search campaign spending up to {money(d.dailyBudget, currency)} a day (about {money((d.dailyBudget ?? 0) * 30.4, currency)} a month)</span>, showing in {d.locations.map((l) => l.name).join(", ")}, with {d.groups.length} ad group{d.groups.length === 1 ? "" : "s"}.
+                <strong>Create a Search campaign spending up to {money(d.dailyBudget, currency)} a day (about {money((d.dailyBudget ?? 0) * 30.4, currency)} a month)</strong>, showing in {d.locations.map((l) => l.name).join(", ")}, with {d.groups.length} ad group{d.groups.length === 1 ? "" : "s"}.
               </p>
-              <p className="meta">Created paused, switched on at the end. It starts spending as soon as it is switched on.</p>
+              <p className="meta">Google checks the whole campaign first, then it is built <strong>paused</strong>. Nothing spends until you press Go live on the next screen.</p>
             </div>
             <div className="dialog-foot">
               <button className="btn" onClick={() => setConfirming(false)} disabled={busy === "launch"}>Cancel</button>
               <button className="btn btn-primary" disabled={busy === "launch"} onClick={async () => {
-                const b = await call<{ ok: boolean }>("launch", "/api/drafts/launch", post({ client: clientId, id: draftId, confirm: true }));
+                const b = await call<{ ok: boolean }>("launch", "/api/drafts/launch", post({ client: clientId, id: draftId, confirm: true, goLive: false }));
                 setConfirming(false);
                 const refreshed = await fetch(`/api/drafts?client=${clientId}&id=${draftId}`).then((r) => r.json()).catch(() => null);
                 if (refreshed?.launchSteps) setLog(refreshed.launchSteps);
-                if (b?.ok) { setLaunched(true); router.refresh(); }
-              }}>{busy === "launch" && <span className="spinner" />}Launch it</button>
+                if (b?.ok) router.push(`/clients/${clientId}/launch/${draftId}` as never);
+              }}>{busy === "launch" && <span className="spinner" />}Build it paused</button>
             </div>
         </Dialog>
       )}

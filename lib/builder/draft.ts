@@ -20,7 +20,7 @@ const Keyword = z.object({
   match: z.enum(MATCH).default("PHRASE"),
   // Where it came from, shown next to it: Search Console, converting searches,
   // the site, or a suggestion.
-  source: z.enum(["search_console", "converting", "site", "suggested", "manual"]).default("manual"),
+  source: z.enum(["search_console", "converting", "site", "planner", "suggested", "manual"]).catch("manual"),
 });
 
 const Group = z.object({

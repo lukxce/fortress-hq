@@ -32,7 +32,7 @@ async function seeds(clientId: number) {
   };
 }
 
-export async function suggestGroups(clientId: number, summary: unknown, places: string[]): Promise<DraftGroup[]> {
+export async function suggestGroups(clientId: number, summary: unknown, places: string[], extra: { ideas?: { text: string; monthly: number | null }[]; goal?: string } = {}): Promise<DraftGroup[]> {
   const key = process.env.ANTHROPIC_API_KEY?.trim();
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
   const s = await seeds(clientId);
@@ -55,7 +55,7 @@ export async function suggestGroups(clientId: number, summary: unknown, places: 
                 properties: {
                   text: { type: "string" },
                   match: { type: "string", enum: ["EXACT", "PHRASE", "BROAD"] },
-                  source: { type: "string", enum: ["search_console", "converting", "site", "suggested"] },
+                  source: { type: "string", enum: ["search_console", "converting", "site", "planner", "suggested"] },
                 },
                 required: ["text", "match", "source"], additionalProperties: false,
               },
@@ -77,13 +77,13 @@ export async function suggestGroups(clientId: number, summary: unknown, places: 
 
 Rules:
 - One group per distinct service the business offers, named plainly ("AC repair", "AC installation"). Two to six groups. Low-volume accounts cannot feed many.
-- Prefer keywords from the evidence, and label their source: "search_console" (the site already appears for it), "converting" (it already produced conversions in Ads), "site" (the service is named on the site). Only add "suggested" keywords where the evidence is thin, and keep them close to what the site says it does.
+- Prefer keywords from the evidence, and label their source: "converting" (it already produced conversions in Ads), "search_console" (the site already appears for it), "planner" (Keyword Planner shows people search it where the ads will run; its monthly volume is given), "site" (the service is named on the site). Among planner ideas prefer the ones with volume that match a service on the site. Only add "suggested" keywords where the evidence is thin, and keep them close to what the site says it does.
 - 5 to 15 keywords per group. Include the service with and without the place names given, in the language the site uses — for Serbian, include the Latin spelling with diacritics (č, ć, š, ž, đ); close variants cover spelling without them.
 - match: EXACT for the core search that already converts, PHRASE for most, BROAD sparingly.
 - Never include a keyword containing these brand words: ${JSON.stringify(brands)}. Never include jobs, free, DIY or how-to searches.
 - finalUrl: the page on the site that best matches the group, taken from the business summary's offers. Never invent a URL.`,
     output_config: { format: { type: "json_schema", schema } },
-    messages: [{ role: "user", content: JSON.stringify({ business: summary, places, evidence: s }) }],
+    messages: [{ role: "user", content: JSON.stringify({ business: summary, places, goal: extra.goal ?? null, evidence: { ...s, plannerIdeas: extra.ideas ?? [] } }) }],
   } as any);
   const text = (res.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
   const parsed = JSON.parse(text) as { groups: DraftGroup[] };
@@ -92,12 +92,13 @@ Rules:
   // "converting" if it is actually in that list.
   const gscSet = new Set(s.searchConsole.map((g) => normalise(g.query)));
   const convSet = new Set(s.converting.map((c) => normalise(c.term)));
+  const plannerSet = new Set((extra.ideas ?? []).map((i) => normalise(i.text)));
   return parsed.groups.map((g) => ({
     name: g.name, finalUrl: g.finalUrl, headlines: [], descriptions: [], path1: "", path2: "",
     keywords: g.keywords.slice(0, 20).map((k) => {
       const n = normalise(k.text);
-      const source = convSet.has(n) ? "converting" : gscSet.has(n) ? "search_console"
-        : k.source === "search_console" || k.source === "converting" ? "suggested" : k.source;
+      const source = convSet.has(n) ? "converting" : gscSet.has(n) ? "search_console" : plannerSet.has(n) ? "planner"
+        : ["search_console", "converting", "planner"].includes(k.source) ? "suggested" : k.source;
       return { text: k.text.slice(0, 80), match: k.match, source: source as any };
     }),
   }));

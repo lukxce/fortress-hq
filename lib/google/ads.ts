@@ -212,12 +212,15 @@ export async function mutate(
   customerId: string,
   service: string,
   operations: unknown[],
-  loginCustomerId?: string
+  loginCustomerId?: string,
+  opts: { validateOnly?: boolean } = {}
 ): Promise<{ resourceName?: string; [k: string]: unknown }[]> {
   const out = (await call(client, `customers/${digits(customerId)}/${service}:mutate`, {
     method: "POST",
     loginCustomerId,
-    body: { operations, responseContentType: "MUTABLE_RESOURCE" },
+    // validateOnly: Google checks the whole change — policy, limits, references —
+    // and changes nothing. Every change Fortress makes goes through this first.
+    body: opts.validateOnly ? { operations, validateOnly: true } : { operations, responseContentType: "MUTABLE_RESOURCE" },
   })) as { results?: { resourceName?: string }[] } | null;
   return out?.results ?? [];
 }
@@ -228,4 +231,18 @@ export async function mutate(
  */
 export async function adsPost(client: OAuth2Client, path: string, body: unknown, loginCustomerId?: string): Promise<any> {
   return call(client, path, { method: "POST", body, loginCustomerId });
+}
+
+/**
+ * Several resources in one atomic request, linked by temporary resource names
+ * (negative IDs). With validateOnly it is a true dry run of a whole campaign:
+ * budget, campaign, targeting, ad groups, keywords and ads checked together.
+ */
+export async function mutateAll(
+  client: OAuth2Client, customerId: string, mutateOperations: unknown[], opts: { validateOnly?: boolean } = {}
+): Promise<any> {
+  return call(client, `customers/${digits(customerId)}/googleAds:mutate`, {
+    method: "POST",
+    body: { mutateOperations, ...(opts.validateOnly ? { validateOnly: true } : {}) },
+  });
 }

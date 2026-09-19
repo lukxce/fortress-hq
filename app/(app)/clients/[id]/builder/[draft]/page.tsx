@@ -7,9 +7,10 @@ import { CampaignWizard } from "@/components/builder/CampaignWizard";
 
 export const dynamic = "force-dynamic";
 
-export default async function DraftPage({ params }: { params: Promise<{ id: string; draft: string }> }) {
+export default async function DraftPage({ params, searchParams }: { params: Promise<{ id: string; draft: string }>; searchParams: Promise<{ step?: string }> }) {
   const client = await pageClient(params);
   const { draft } = await params;
+  const { step } = await searchParams;
   const [row] = await q<any>(`SELECT * FROM drafts WHERE id = $1 AND client_id = $2`, [Number(draft), client.id]);
   if (!row) notFound();
 
@@ -29,12 +30,12 @@ export default async function DraftPage({ params }: { params: Promise<{ id: stri
     <div className="stack rise">
       <header className="page-head">
         <div>
-          <p className="meta"><Link href={`/clients/${client.id}/builder` as never}>← All drafts</Link></p>
+          <p className="meta">{row.guided ? <Link href={`/clients/${client.id}/launch/${row.id}` as never}>← Back to the proposal</Link> : <Link href={`/clients/${client.id}/builder` as never}>← All drafts</Link>}</p>
           <h1>{row.name}</h1>
         </div>
       </header>
       <CampaignWizard
-        clientId={client.id} draftId={row.id} initial={readDraft(row.state)} initialStep={row.step} status={row.status}
+        clientId={client.id} draftId={row.id} initial={readDraft(row.state)} initialStep={Number(step) || row.step} status={row.status}
         conversions={conversions} currency={client.currency} defaultUrl={origin} launchLog={log}
       />
     </div>

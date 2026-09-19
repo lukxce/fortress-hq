@@ -7,6 +7,8 @@ import { biddingHealthFindings } from "./bidding";
 import { actionableFindings } from "./actionable";
 import { productFindings } from "./products";
 import { portfolioFindings } from "./portfolio";
+import { negativeFindings } from "./negatives";
+import { adCopyFindings } from "./adcopy";
 import { brandTerms, containsBrand } from "./brand";
 import {
   accountBaseline, fromEuros, poissonUpper, testPeriods, zeroConversionMultiple,
@@ -85,6 +87,9 @@ export async function computeFindings(clientId: number): Promise<Finding[]> {
   out.push(...(await productFindings(clientId)));
   // What other accounts have taught, where it applies here.
   out.push(...(await portfolioFindings(clientId).catch(() => [])));
+  // Negatives and ad copy, each in their own right.
+  out.push(...(await negativeFindings(clientId).catch(() => [])));
+  out.push(...(await adCopyFindings(clientId).catch(() => [])));
 
   for (const f of out) {
     f.area ??= areaOf(f.kind);
