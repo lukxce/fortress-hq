@@ -1,3 +1,4 @@
+import { competitorBrief } from "@/lib/competitors";
 import { q } from "@/lib/db";
 import { clientWithProperties } from "@/lib/binding";
 import { campaignPerformance, periodTotals, pacing, fromMicros } from "@/lib/engine/metrics";
@@ -119,6 +120,7 @@ export async function accountSnapshot(clientId: number) {
     businessProfile: beyondAds.businessProfile,
     pageSpeed: beyondAds.pageSpeed,
     keywordPlanner: beyondAds.keywordPlanner,
+    competitors: beyondAds.competitors,
     _findings: findings,
   };
 }
@@ -154,12 +156,14 @@ async function otherProducts(clientId: number) {
     q<any>(`SELECT keyword, avg_monthly::int AS monthly, sources FROM keyword_volumes WHERE client_id = $1 ORDER BY avg_monthly DESC NULLS LAST LIMIT 120`, [clientId]),
     q<any>(`SELECT keyword_targeting FROM clients WHERE id = $1`, [clientId]),
   ]);
+  const competitors = await competitorBrief(clientId).catch(() => null);
   return {
     analytics: ga[0]?.n ? { note: "Google Analytics, all channels, not only paid.", ...ga[0], n: undefined, channels90d: channels, events90d: events } : null,
     searchConsole: gsc[0]?.n ? { note: "Organic Google search. Windows end three days ago.", ...gsc[0], n: undefined, topPages28d: pages } : null,
     tagManager: tags.length ? { tags } : null,
     businessProfile: gbp.length ? { note: "Google Business Profile, daily, about three days behind.", metrics: gbp, reviews: reviews[0] } : null,
     pageSpeed: speed.length ? { note: "PageSpeed Insights. field = real Chrome visitors at the 75th percentile (page or whole site, see field_scope); lab = one simulated run.", pages: speed } : null,
+    competitors,
     keywordPlanner: volumes.length || ideas.length ? {
       note: "Google Keyword Planner: rounded 12-month average monthly searches where the campaigns target. For ordering, not forecasting.",
       targeting: target[0]?.keyword_targeting ?? null, volumesForExisting: volumes, newIdeas: ideas,

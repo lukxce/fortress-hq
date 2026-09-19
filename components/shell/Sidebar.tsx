@@ -96,6 +96,7 @@ export function Sidebar({ clients, admin, identity, email }: { clients: ClientIt
       { href: `${base}/launch`, label: "Launch a campaign" },
       { href: `${base}/ads`, label: "Campaigns", exact: true },
       { href: `${base}/ads/copy`, label: "Ads & copy" },
+      { href: `${base}/ads/competitors`, label: "Competitors" },
       { href: `${base}/ads/search-terms`, label: "Search terms & keywords" },
       { href: `${base}/ads/keywords`, label: "Keyword research" },
       { href: `${base}/builder`, label: "Campaign builder" },

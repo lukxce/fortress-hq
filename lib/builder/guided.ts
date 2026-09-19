@@ -9,6 +9,7 @@ import { readDraft, type Draft } from "./draft";
 import { brandTerms, containsBrand, normalise } from "@/lib/engine/brand";
 import { fromMicros } from "@/lib/engine/metrics";
 import { MIN_PROJECTS } from "@/lib/learning/patterns";
+import { competitorBrief } from "@/lib/competitors";
 
 /**
  * The guided launch: three answers in, a whole campaign out.
@@ -95,11 +96,13 @@ export async function buildGuided(clientId: number, input: GuidedInput): Promise
     built.push(`Keyword Planner was not available (${(err as Error).message.slice(0, 120)}); keywords come from the site and the account`);
   }
 
-  // 3. Groups and ads.
+  // 3. Groups and ads — written to stand apart from the competitors the operator named.
+  const competitors = await competitorBrief(clientId).catch(() => null);
+  if (competitors) built.push(`Competitors taken into account: ${competitors.competitors.map((c: any) => c.name).join(", ") || "ads seen on your searches"}`);
   const groups = await suggestGroups(clientId, summary, input.places.map((p) => p.name), {
     ideas: ideas.map((i) => ({ text: i.text, monthly: i.monthly })), goal: input.goal,
   });
-  const ads = await Promise.all(groups.map((g) => suggestAdText(summary, { name: g.name, keywords: g.keywords.map((k) => k.text), finalUrl: g.finalUrl }).catch(() => null)));
+  const ads = await Promise.all(groups.map((g) => suggestAdText(summary, { name: g.name, keywords: g.keywords.map((k) => k.text), finalUrl: g.finalUrl }, competitors).catch(() => null)));
   groups.forEach((g, i) => { const a = ads[i]; if (a) Object.assign(g, a); });
   built.push(`${groups.length} ad group${groups.length === 1 ? "" : "s"}, ${groups.reduce((n, g) => n + g.keywords.length, 0)} keywords, ads written for each`);
 

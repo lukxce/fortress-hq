@@ -104,7 +104,7 @@ Rules:
   }));
 }
 
-export async function suggestAdText(summary: unknown, group: { name: string; keywords: string[]; finalUrl: string }) {
+export async function suggestAdText(summary: unknown, group: { name: string; keywords: string[]; finalUrl: string; keep?: string[] }, competitors: unknown = null) {
   const key = process.env.ANTHROPIC_API_KEY?.trim();
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
   const schema = {
@@ -126,9 +126,11 @@ export async function suggestAdText(summary: unknown, group: { name: string; key
 - Up to 15 headlines, each at most 30 characters including spaces. Up to 4 descriptions, each at most 90 characters.
 - Only claim what the business summary says: never invent prices, discounts, years in business, guarantees, ratings or response times.
 - Vary them: the service, the place, a reason to choose them from the summary, a call to action. Do not repeat the same words across headlines.
-- path1 and path2: at most 15 characters each, lowercase, no spaces.`,
+- path1 and path2: at most 15 characters each, lowercase, no spaces.
+- If competitors are given: do not echo their claims or wording. Lead with what this business offers that they do not show (their "gaps"), and never use a competitor's name or trademark.
+- If lines to keep are given, they already perform well: write different ones that complement them.`,
     output_config: { format: { type: "json_schema", schema } },
-    messages: [{ role: "user", content: JSON.stringify({ business: summary, adGroup: group }) }],
+    messages: [{ role: "user", content: JSON.stringify({ business: summary, adGroup: group, competitors }) }],
   } as any);
   const text = (res.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
   const out = JSON.parse(text);
